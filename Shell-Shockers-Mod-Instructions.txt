@@ -1,0 +1,2111 @@
+=====================================================================================================================
+  SHELL SHOCKERS MOD INSTRUCTIONS
+  How to build Shell Shockers userscript mods that work, look native, and survive game updates.
+  For AI coding assistants (Codex, Cursor, Copilot, Antigravity, Claude, ChatGPT, Gemini) and the people using them.
+
+  Version 1.0.0 | Researched 2026-10-15 | https://github.com/Virojet/Shell-Shockers-Mod-Instructions
+  Built from the source code of Virojet's published mods (Better HUD, Stats Mod, Valorant Sensitivity, Valorant Kill
+  Sounds, Blossom V4 Theme, Cherry Blossom Theme, No Chat Cooldown), with facts from yolkbot and community clients.
+=====================================================================================================================
+
+HOW TO READ THIS FILE
+- Section 0 is for the AI: the working method and the rules that matter most. Read all of it before writing code.
+- Sections 1 to 16 explain each topic in depth. The appendices hold the domain list, the starter template, and
+  reference data.
+- Rules are numbered (R1, R2, ...) so they can be cited.
+- VERIFIED means a published, working mod relies on it (as of the date above). CHECK means it is likely true but must
+  be confirmed in the current game before you depend on it.
+- The game updates often. When this file and the live game disagree, the live game wins: verify, then adapt.
+
+CONTENTS
+  0. For the AI: working method and core rules
+  1. Scope and fair play
+  2. How the game is built
+  3. Userscript basics
+  4. The game's stable surfaces (API reference)
+  5. Choosing how to hook in: levels L0 to L4
+  6. Getting and reading the game's code
+  7. Exploring in the browser console
+  8. Patching the game's code safely
+  9. Architecture and code standards
+ 10. Making it look and feel native
+ 11. Working with other mods
+ 12. Recipes (complete, copyable code)
+ 13. Testing, debugging, and surviving game updates
+ 14. Publishing
+ 15. Anti-patterns: what makes a mod look like AI slop
+ 16. Pre-delivery checklist
+  A. @match list
+  B. Starter template
+  C. Game reference data
+  D. Glossary
+  E. Sources and credits
+
+
+=====================================================================================================================
+0. FOR THE AI: WORKING METHOD AND CORE RULES
+=====================================================================================================================
+
+You are writing a userscript (a .user.js file run by Tampermonkey or Violentmonkey) for Shell Shockers, a browser
+first-person shooter at shellshock.io. Follow this method every time.
+
+STEP 1  Understand the request. Restate it in one or two sentences. Check it against Section 1. If any part gives an
+        advantage over other players or changes what they experience, leave that part out, say so in one sentence,
+        and offer the closest in-scope alternative. Then build the rest.
+STEP 2  Choose the least invasive way in (Section 5: levels L0 to L4). State the level you chose and why.
+STEP 3  Confirm every game detail you rely on. If this file does not mark it VERIFIED, ask the user to run a console
+        check from Section 7, or to paste the relevant part of the decoded game code (Section 6). Never invent game
+        internals: no guessed variable names, function names, DOM ids, or code shapes.
+STEP 4  Write ONE complete .user.js file, starting from the template in Appendix B. No placeholders, no TODOs, no
+        "add your logic here". Every feature you mention must be implemented.
+STEP 5  Make it look native (Section 10): the game's own CSS classes, CSS variables, fonts and sounds, placed inside
+        the game's own Settings popup where possible.
+STEP 6  Run the checklist in Section 16 and fix every failure before you answer.
+STEP 7  Deliver: the file; a two-line install note; exact test steps (what to click, what should happen, what to type
+        in the console to confirm); and known limits (what could break after a game update and how the user will
+        notice).
+
+CORE RULES (the short version of this whole file)
+R1  Scope: cosmetic, HUD, information the game already shows the user, audio, settings, stats, quality of life and
+    performance. Never aim help, revealing hidden things, combat or movement changes, packet tricks, or anything that
+    changes what other players see or hear. (Section 1)
+R2  Header: @run-at document-start, @grant none, the full @match list from Appendix A, plus @name, @namespace,
+    @version, @description, @author, @license, @homepageURL, @supportURL, @downloadURL and @updateURL. (Section 3.2)
+R3  One file, one IIFE, "use strict", and a double-run guard at the top: if (window.ssMyMod) return;
+R4  Least invasive hook first: CSS, then DOM, then the game's Vue app and globals, then property traps, and only then
+    patching the game's code. (Section 5)
+R5  Never hard-code the game's short obfuscated names (nc, Rc, tP, XO, wb ...). They change on every build. Anchor on
+    stable strings and property names, and capture short names with [\w$]+ groups. (Section 8)
+R6  Wrap, never replace. When you hook a game function, keep the original, call it, mark your wrapper with a
+    Symbol.for(...) key, and make unhooking safe when another mod wrapped after you. (Recipe 12.6)
+R7  Re-attach, don't assume. The game's Vue UI re-renders and replaces elements, and its app object can be replaced.
+    Use a one-second tick (or a narrowly scoped MutationObserver) to re-inject UI and re-hook when needed. (9.6)
+R8  Look native. Reuse the game's classes (ss_button, btn_blue, bevel_blue, ss_checkbox, ss_slider, ss_select,
+    popup_window, f_row ...), colors through var(--ss-...), the Nunito and Sigmar One fonts, and the game's sounds.
+    No floating neon panels, no emoji, no alert(), confirm() or prompt(). (Section 10)
+R9  Put settings in the game's Settings popup. A cell inside one of the game's tabs honors its Confirm, Reset to
+    Defaults and Cancel buttons (Recipe 12.2); a whole tab of your own may apply changes at once, with its own Reset.
+R10 Keyboard: ignore keys while the user types (input, textarea, contenteditable, chat); stop propagation inside your
+    own inputs so typing never reaches the game; never take a key the game uses; make hotkeys configurable. (10.5)
+R11 Pointer lock: while the player is aiming (document.pointerLockElement is set), overlays must not take clicks
+    (pointer-events: none) and must stay out of the player's way. (Section 10.6)
+R12 Storage: one localStorage key per mod, JSON, validated by a clean() function with defaults, every access inside
+    try/catch. (Recipe 12.9)
+R13 Performance: no per-frame work unless per-frame is the feature; no layout reads in loops; timers at one second or
+    slower; every timer and observer stops when the mod stops. (Section 9.8)
+R14 Safety: write untrusted text (player names, chat) with textContent, never innerHTML. Never eval fetched code. No
+    network requests except downloading your own assets from a pinned URL, and disclose them. (Section 9.9)
+R15 Logging: prefix every console line with [Mod Name]. Warn once per problem, never every frame. The game may wrap
+    console, so take const warn = console.warn.bind(console, "[My Mod]") at document-start.
+R16 Patching (only if you must): through the shared pipeline (one pass, one summary line such as "[Better HUD] Game
+    patches: 5 applied (...); NOT applied: myMod:x (game updated?) in 20 ms"), an exact expected match count per
+    anchor, and fail soft: an unmatched patch must leave the game running unpatched, never broken. (Section 8)
+R17 Coexist: register with the Mod Menu (window.ssModMenuQueue), detect Better HUD where features overlap, and prefix
+    every id, class, storage key and global with your mod's own name. (Section 11)
+R18 Expose a small public API on window: version, settings(), set(), status(). It makes debugging possible.
+R19 Lifecycle: start() and stop() that fully undo each other: hooks, listeners, timers, observers, DOM and styles.
+R20 Honesty: say what you could not verify. Never claim it was tested in the game unless the user confirmed it.
+
+
+=====================================================================================================================
+1. SCOPE AND FAIR PLAY
+=====================================================================================================================
+
+1.1 In scope: build these
+- Themes and skins for the menus, the loading screen and the HUD.
+- HUD changes: moving, resizing, restyling or hiding the game's own HUD elements; crosshair editors; FPS, ping and
+  clock displays.
+- Information the game already gives the user: their own kills, deaths, streak and KDR; the scoreboard and kill feed
+  the game shows; match history; session stats; their own reload and cooldown timers.
+- Audio: kill sounds and banners for the user's own kills, sound packs, volume controls.
+- Settings and menus: new tabs or options inside the game's Settings, keybinds, presets, import and export codes.
+- Quality of life: server pickers, inventory favorites, chat history, tooltips, accessibility (contrast, colorblind
+  palettes, larger text), sensitivity converters.
+- Performance: uncapped FPS, render scale, turning off visual effects that do not hide gameplay information.
+
+1.2 Out of scope: never build these, not even as an optional toggle or "for testing"
+- Aim help: aimbot, aim assist, magnetism, silent aim, triggerbot, auto-fire on target.
+- Revealing what the game hides: ESP, wallhacks, tracers, chams, names or boxes through walls, radar of hidden
+  players, health or ammo of others when the game does not show it, removing or seeing through smoke, fog, darkness
+  or scope overlays.
+- Combat or movement changes: recoil or spread removal, rapid fire, instant reload, speed, fly, noclip, teleport,
+  movement scripts, anti-aim, hitbox changes.
+- Network tricks: crafting, replaying, delaying, dropping or editing packets; spoofing; desync; lag switching.
+- Changing what other players see or hear (for example hiding your reload from opponents), griefing, chat spam, chat
+  filter bypasses, bots that join games, account tools, bypassing rate limits, currency or item exploits, unlocking
+  paid items, ban evasion.
+- Anti-cheat and detection evasion: hiding a mod's elements, hooks or scripts from the game, blocking or faking what
+  the game's WebAssembly reads, spoofing input (isTrusted, pointer events). The one narrow exception in this guide is
+  the original-text read-back in the shared code-patch pipeline (Section 8.1), which published cosmetic mods use, and
+  only for the fair-play features this section allows.
+- The game's WebAssembly functions: leave them alone (get_yaw_pitch, reset_yaw_pitch, process, validate and the
+  rest). The single allowed use is passing the user's own chosen sensitivity through window.set_mouse_params, the
+  way the game's Mouse Speed setting does (Valorant Sensitivity, Recipe 12.6). Never use it to move, smooth or assist
+  the view.
+
+1.3 Gray areas: the one-question test
+Ask: "Does this help the user beat other players, or show the user something the game hides?" If yes, it is out of
+scope. Precedents from published mods:
+- Better HUD dropped its "Hide Scope Frame" setting at the developers' request because it can give an unfair edge.
+- Better HUD's "Disable All Particles" deliberately keeps smoke visible.
+- A wider field of view is acceptable only the way the game already allows it: Better HUD's "FOV (Black Bars)" equals
+  playing in a shorter browser window.
+- Hiding visual clutter (bullet meshes, splats, explosion fire) is acceptable; hiding smoke or the scope is not.
+- Removing a client-side limit the server also enforces (the chat cooldown) does nothing useful and invites abuse:
+  Better HUD dropped it once the servers enforced the limit.
+
+1.4 Why this is a hard rule
+- It is the line the community and the developers (Blue Wizard Digital) accept. Cheats get accounts banned and repos
+  reported, and features that crossed the line have been removed on request.
+- Trust is what gets a mod installed. "Client-side cosmetic and quality-of-life only" is the promise behind Better
+  HUD's install count.
+- Mixing a cheat into a request makes AI assistants refuse the entire task. A clean scope is how the rest gets built.
+
+1.5 How to answer an out-of-scope request
+One sentence on what you won't add and why, then the nearest in-scope alternative, then continue with the rest:
+- "Aim assist"                     -> a crosshair editor, or a sensitivity converter (like Valorant Sensitivity).
+- "ESP" or "see players"           -> a kill feed restyle, a scoreboard hotkey, the user's own match stats.
+- "No recoil"                      -> an ammo and reload display for the user's own weapon.
+- "Hide my reload from enemies"    -> a reload timer and reload sound for the user only.
+
+1.6 Respect the game
+- No ad blocking or telemetry blocking switched on by default. If you add such an option, it is off by default and
+  stated plainly in the README.
+- Never fake or unlock paid items. Visual-only changes that only the user sees must be labeled as such.
+- Never publish the game's code or assets (Section 6.5).
+- Disclose every network request your mod makes (README "Privacy" section).
+
+
+=====================================================================================================================
+2. HOW THE GAME IS BUILT
+=====================================================================================================================
+
+2.1 The stack (VERIFIED unless marked)
+- Rendering: Babylon.js 7 (WebGL) draws the 3D game into <canvas id="canvas">. Babylon is compiled into the game's
+  bundle, so there is NO usable window.BABYLON. The scene is reachable as window.P.scene (Better HUD relies on it;
+  CHECK it in the current build). Babylon's own API names (getEngine, setHardwareScalingLevel, meshes, layerMask,
+  getAnimationByName ...) are never obfuscated, because they belong to the library.
+- Interface: Vue (options API) renders every menu, popup and HUD element. The root instance is window.vueApp, defined
+  by the page itself rather than the game's bundle, and its shared data is window.vueData. Method names
+  (showSettingsPopup, shellIngameNotification ...) and $refs are stable, because the Vue templates use them.
+- Game API for the UI: window.extern (inGame, setMouseSpeed, keyToLabel, catalog, account ...).
+- WebAssembly: a Rust/wasm-bindgen module handles mouse look (pointer-lock movementX/Y into yaw and pitch, scaled by
+  window.set_mouse_params), decodes the game's code at startup, checks it, and computes values the server checks.
+- Audio: the game's own engine, window.BAWK, on the Web Audio API (BAWK.play(name), BAWK.audioCtx, BAWK.gainNode).
+- Networking: binary WebSocket packets. The match socket is wss://<host>/game/<code>. The server is authoritative:
+  health, ammo, hits, kills, respawns and chat limits are decided there. Client-side changes to them do nothing or
+  get the player kicked.
+- Accounts: Firebase authentication plus the game's services socket.
+- The bundle is minified and obfuscated, and names are re-rolled with every build (roughly monthly in 2026; once,
+  163 different builds were served in 14 hours). Since April 2025 this includes many PROPERTY names too (in one build
+  hp became oE). What survives: names the page and the Vue UI use (vueApp, vueData, extern, BAWK and their members),
+  Babylon API names, logged strings, and the property names the published mods anchor on today (playerIdx, isDead,
+  scoreKill, die, unPackInt8U, stats.kills, stats.deaths, team, name, reloadCountdown, chatLines). Treat every other
+  name as unstable and CHECK it in the current build.
+
+2.2 How the game's code reaches the page (VERIFIED by yolkbot's WebAssembly bindings and the published mods)
+  1. The page loads the WebAssembly module (wasm_loader.js and a hashed .wasm file).
+  2. js/shellshock.js is downloaded. It is NOT plain JavaScript: it is encoded. From May 2025 to at least May 2026
+     the scheme was a rolling XOR, byte[i] ^ ((88 + i) & 127) (yolkbot 1.4.0 to 1.5.12 decode it that way). It can
+     change with any update.
+  3. The WebAssembly decodes it, creates a <script>, sets its textContent to the decoded code (one ~3.3 MB script
+     starting with "(()=>{"), and appends it to document.body.
+  4. The script runs: it builds the Babylon engine and scene, wires up the Vue app, and connects.
+  5. The WebAssembly reads the script's text back to check it, and it also inspects the page's DOM.
+  How it got here (from community clients' history): until April 2025 the game fetched js/shellshock.js with
+  XMLHttpRequest and evaluated it; for two weeks it used Function(); then an inline <script>; since 13 May 2025 the
+  WebAssembly pipeline above. Guides and scripts that hook XMLHttpRequest or Function are from before that.
+  What this means for mods:
+  - Most mods never need the game's code: CSS, the DOM, Vue and the stable globals cover a lot (Section 5).
+  - A mod that must change the game's code runs at document-start and changes it at step 3 (Section 8). Because of
+    step 5, that only works if the script's text still reads back as the original, which is why code patching is the
+    last resort.
+  - Downloading js/shellshock.js yourself gives you encoded bytes. To read the code, catch it at step 3 the way
+    tools/Shell-Shockers-Code-Dumper.user.js does (Section 6).
+  - The game can see everything you add to the page. Cosmetic mods have nothing to hide: never try to hide elements,
+    hooks or scripts from the game (Section 1.2).
+
+2.3 Domains
+The game runs on shellshock.io and about 75 mirror domains (school-friendly names such as geometry.monster or
+mathdrills.life). Players use them, so every mod must @match all of them (Appendix A). Pattern *://*.example.com/*
+matches example.com itself and every subdomain (www., new.).
+
+2.4 Page phases a mod must survive
+  home screen (menus) -> loading screen (#progress-container) -> in a match (canvas, HUD, pointer lock)
+  -> paused (pause menu, pointer unlocked, respawn button) -> respawned -> leaves -> home screen -> joins again
+Also: team switches, round resets, spectating, private games, the settings popup opening and closing at any phase,
+the tab being hidden, and the window being resized. Every one of these re-renders part of the Vue UI.
+
+
+=====================================================================================================================
+3. USERSCRIPT BASICS
+=====================================================================================================================
+
+3.1 Userscript managers
+- Tampermonkey (recommended) or Violentmonkey, on Chrome, Edge, Firefox, Opera GX, Brave.
+- Chrome, Edge, Brave and Opera need one extra switch for Manifest V3 extensions: Extensions page -> Developer Mode on
+  -> Tampermonkey -> Details -> "Allow User Scripts" on. Opera GX needs a new window afterwards. Without it, nothing
+  runs. Every README should say this (Section 14).
+- Scripts run in the order the manager lists them. When several mods hook the same function, the one that runs last
+  wraps the others and is called first.
+
+3.2 The metadata block
+Use exactly this shape. Keep @name stable forever: managers update by @name plus @namespace.
+
+  // ==UserScript==
+  // @name         Shell Shockers My Mod
+  // @namespace    https://github.com/YourName
+  // @version      1.0.0
+  // @description  One plain sentence: what the player gets.
+  // @author       YourName
+  // @license      MIT
+  // @homepageURL  https://github.com/YourName/Shell-Shockers-My-Mod
+  // @supportURL   https://github.com/YourName/Shell-Shockers-My-Mod/issues
+  // @downloadURL  https://raw.githubusercontent.com/YourName/Shell-Shockers-My-Mod/main/Shell-Shockers-My-Mod.user.js
+  // @updateURL    https://raw.githubusercontent.com/YourName/Shell-Shockers-My-Mod/main/Shell-Shockers-My-Mod.user.js
+  // @match        *://*.shellshock.io/*
+  // @match        ... every line from Appendix A ...
+  // @run-at       document-start
+  // @grant        none
+  // ==/UserScript==
+
+Rules:
+- @run-at document-start, always. A theme needs it to style the loading screen from its first frame. A hook needs it
+  to be in place before the game's code arrives. Code that needs the body simply waits for it (Section 9.4).
+- @grant none, always. The script then runs in the page itself, where window.vueApp, window.BAWK and the game's
+  prototypes live. With any GM_* grant, the manager may run it in an isolated sandbox where window is a different
+  object, page globals are only reachable through unsafeWindow, and prototype hooks do not affect the page.
+- @version is semver. Bump it on every release, or managers will not update.
+- Big mods can ship a .meta.js (just the header) and point @updateURL at it, so update checks download a few hundred
+  bytes. Better HUD keeps its .meta.js in sync with a GitHub Actions workflow on push.
+- @icon: optional, an inline data:image/svg+xml;base64 icon keeps it self-contained.
+- @require: avoid. It loads code from another server (a supply-chain risk) and fails when that CDN is down or
+  blocked. If you need a library, pin an exact version and add its integrity hash, as the Stats Mod's @require of
+  html-to-image does with #sha512-... (Recipe 12.14), or write the small part you need yourself.
+- Settings are per domain with localStorage (shellshock.io and geometry.monster keep separate settings). GM_setValue
+  shares them across domains but needs grants, which brings the sandbox problem above. For most mods, per-domain
+  localStorage plus an export/import code is the better trade.
+
+3.3 Body skeleton (full version in Appendix B)
+
+  (() => {
+    "use strict";
+    if (window.ssMyMod) return;            // already running (installed twice, or started by the Mod Menu)
+    const VERSION = "1.0.0";
+    const STORE = "ssMyMod";               // the one localStorage key
+    const warn = console.warn.bind(console, "[My Mod]");   // bound at document-start (R15)
+    // settings: DEFAULTS, clean(), load, save()
+    // features: hook(), unhook(), injectUI(), removeUI()
+    // lifecycle: tick(), start(), stop()
+    window.ssMyMod = { version: VERSION, settings, set, status };
+    start();
+    (window.ssModMenuQueue = window.ssModMenuQueue || []).push({ id: "my-mod", name: "My Mod", version: VERSION,
+      group: "mod", description: "One sentence on what the player gets.", enable: start, disable: stop, openSettings });
+  })();
+
+3.4 What exists when (VERIFIED)
+- At document-start: document exists; document.documentElement may not exist yet; there is no <head> or <body>;
+  there is no window.vueApp, no BAWK, no canvas.
+- After the game's script runs: window.vueApp, window.extern and window.BAWK exist. The Settings popup's inner
+  elements (#settings_keyboard, #settings_misc ...) may only exist while the popup is open.
+- In a match: the canvas is drawing, the HUD elements exist, and the pointer is locked while aiming.
+- Rule: never assume an element or object exists. Look it up when needed, and re-check every tick (Section 9.6).
+
+
+=====================================================================================================================
+4. THE GAME'S STABLE SURFACES (API REFERENCE)
+=====================================================================================================================
+
+Each entry is used by a published mod that works as of October 2026 (VERIFIED, with the mod named in brackets),
+unless it says CHECK. Always guard before use (typeof x === "function", optional chaining) and expect any of it to
+be missing for a moment while the page loads.
+
+4.1 window.vueApp: the Vue root instance
+Read its data as  const data = window.vueApp && (window.vueApp.$data || window.vueApp);   [Stats Mod, Better HUD]
+Methods
+  showSettingsPopup()                  opens Settings  [Valorant Sensitivity, Kill Sounds, Stats Mod, Better HUD]
+  onSettingsPopupSwitchTabMisc()       switches Settings to the speaker tab  [Kill Sounds, as a fallback]
+  shellIngameNotification(item)        shows an in-game message. On each of YOUR kills it is called with
+                                       { type: 0, streak } (streak present from 2). Wrap it to react to your kills,
+                                       and read item before calling the original: the game rewrites it. [Kill Sounds]
+  setPause(false)                      clears the pause state, as the respawn button does  [Better HUD]
+  $watch(getter, callback)             a Vue watcher; returns a function that stops it  [Valorant Sensitivity]
+  CHECK before use: showGenericPopup, showSpinner, hideSpinner, showGameMenu, hideGameMenu, setInGame, leaveGame,
+  switchToGameUi, switchToHomeUi (named in community research, not used by the published mods).
+Refs
+  $refs.settings                       the Settings component, while it exists  [Valorant Sensitivity]
+    .settingsUi.adjusters.mouse        sliders as { id, value }; id "mouseSpeed" is Mouse Speed
+    .settingsUi.togglers.mouse         switches as { id, value }; id "fastPollMouse" is Fix Mouse Glitch
+    .onSettingAdjusted(id, value)      changes a slider exactly as the game's own control does
+    .onSettingToggled(id, bool)        changes a switch exactly as the game's own control does
+  $refs.equipScreen                    the inventory component  [Better HUD; CHECK details]
+Data  [Stats Mod, Better HUD]
+  game.on                              true while in a game, playing or paused
+  game.gameType                        0 FFA, 1 Teams, 2 Capture the Spatula, 3 King of the Coop (while game.on)
+  game.myPlayerIdx, game.myName        your slot in the player list, and your name
+  game.mapName; maps[i].name           map names (index i comes from players[*].gameData.mapIdx)
+  game.isPaused                        the pause menu is up
+  currentRegionId                      the selected server region
+  ui.game.spectate                     spectating (a boolean)
+  settingsUi.controls.keyboard.game[] and .spectate[]   the key bindings; each .value is { code, label }
+  settingsUi.adjusters.misc[] (an entry with id "volume"), settingsUi.settings.volume
+
+4.2 window.vueData: the game's shared reactive data  [Better HUD]
+  showScreen === screens.game          the match screen is showing (not the loading screen, not the inventory)
+  CHECK: loc (the UI's text by key), maps, gameTypes, settingsUi
+
+4.3 window.extern: the game's API for its own UI
+  inGame                               boolean, in a match. The most reliable "in a game" flag.  [Better HUD, Stats Mod]
+  setMouseSpeed(v)                     applies a Mouse Speed at once  [Valorant Sensitivity]
+  keyToLabel(key)                      the label the game shows for a key  [Stats Mod]
+  catalog.findItemById(id), catalog.findItemsByIds([...]), getEquippedItems(), account  [Better HUD; CHECK]
+
+4.4 window.BAWK: the game's audio engine
+  play(name)                           plays one of the game's sounds. The UI sounds  [Better HUD, Stats Mod]:
+                                         ui_click       buttons
+                                         ui_onchange    checkboxes, a slider let go, a dropdown pick
+                                         ui_toggletab   opening or closing a tab, panel or dropdown
+                                         ui_popupopen   a dialog opening
+                                         ui_equip       a successful import or load
+  audioCtx, gainNode                   the game's AudioContext and its Sound Effects output. Connect your own sounds
+                                       to gainNode so the game's volume applies; gain 0 means the user turned sound
+                                       off.  [Kill Sounds]
+  setVolume(v), sounds[name].buffer, loadSound(url, name)  [Better HUD]
+  BAWK is assigned during startup. To act the moment it exists, use a window property trap (Recipe 12.7).
+
+4.5 window.set_mouse_params(mouseSpeed, invert, gunZoom, aiming, id)  [Valorant Sensitivity]
+  Called by the game every frame. The WebAssembly turns the view by (Mouse Speed)^2 x 0.000001 radians per mouse
+  count and, while aiming, multiplies that by gunZoom. Passing the user's own chosen zoom sensitivity through it is the
+  only allowed use (Section 1.2).
+
+4.6 Values exposed by code patches (they do not exist without a patch)
+  window.players, window.myPlayerIdx   Sections 8.4 and 8.5  [Stats Mod, Better HUD]. Player fields (VERIFIED):
+                                       name, safeName, team (0 none, 1 blue, 2 red), stats.kills, stats.deaths,
+                                       totalKills, gameData.mapIdx. The list is rebuilt for each match and stays
+                                       filled after you leave, so ask extern.inGame whether a game is on.
+  window.P.scene                       the Babylon scene, which the game itself exposes as window.P  [Better HUD
+                                       reads it; CHECK]. scene.getEngine() gives the engine: getFps(),
+                                       setHardwareScalingLevel(), onEndFrameObservable. The scene has
+                                       onBeforeRenderObservable, meshes, spriteManagers, particlesEnabled.
+
+4.7 The page and the connection
+  #canvas                              the game's canvas, and the pointer-lock target
+  document.pointerLockElement          set while the player is in play
+  the match WebSocket                  wss://<host>/game/<code>: the URL gives the game code, the host gives the
+                                       region (Recipe 12.11). Read the URL only; never touch the messages.
+  the game's own localStorage keys     autoDetail, fastPollMouse, volume, selectedRegionId: read them, never write
+
+4.8 DOM: the Settings popup  [Valorant Sensitivity, Kill Sounds, Stats Mod, Better HUD]
+  #settings                            the popup; it is open when el.getClientRects().length > 0
+  #popupInnards                        the content box; the element just before it is the tab strip (.ss_bigtab)
+  #keyboard_button, #misc_button       the keyboard tab and the speaker (misc) tab buttons
+  #settings_keyboard                   the keyboard tab. Mouse Speed is the input.ss_slider inside a .ss_margintop
+                                       block; key rows are div.nowrap holding an input.ss_keybind, in the column
+                                       .f_col.ss_marginleft_xl
+  #settings_misc > .display-grid       the speaker tab's grid: append your own div.f_col cell here
+  #settings .grid-column-3-eq > button the footer buttons: .btn_green Confirm, .btn_yolk Reset to Defaults, .btn_red
+                                       Cancel. Skip .ss_bigtab buttons, which can match the same selector.
+  The game closes Settings on an Escape KEYUP. If your control used Escape, swallow that keyup (Section 10.5).
+
+4.9 DOM: home screen, HUD, pause, loading  [the mods named in Section 10; anything not used there is CHECK]
+  Home      .play-panel-btn-group (the button row beside Play), .btn_game_mode with .game-mode-type,
+            .main-menu-button, #regionSelect (the server <select>), .player-challenges-container
+  HUD       #inGameUI, #readouts (with #FPS and #ping), #reticleDot, #crosshairContainer, .crosshair, #healthContainer,
+            .healthYolk, #kill-death-box (.killed h3, .died h2), #bigMessageCaption, #shellStreakContainer,
+            #playerList, #chatOut, #chatIn, .chat-item, #teamScores, #teamScoreNum1, #teamScoreNum2,
+            #captureContainer, #captureScoreBlue, #captureScoreRed, #spatulaPlayer
+  Pause     .pause-game-container, .pause-game-weapon-select, .is-paused .pause-ui-element, .btn-respawn,
+            .pause-screen-btn-spectate
+  Loading   #progress-container, #progress-outer, #progressBar, .spinner-tips, .load_screen
+  Popups    .popup_window
+
+4.10 CSS: sizing and the game's variables  [Blossom V4, Cherry Blossom, Better HUD, Stats Mod]
+  Sizing: the game sets * { font-size: 1.95vh } (about 21.06 px at 1080p), so its whole UI scales with the window's
+  height. Set your own font-size on your containers, in em, or everything inside inherits 1.95vh.
+  Variables (override them on html:root to theme the game; read them with var(--name, fallback) to match it):
+    --ss-blue00, --ss-blue0 ... --ss-blue8, --ss-blue2clear, --ss-blue2alpha7, --ss-blueblend1, --ss-blueshadow
+    --ss-yolk0, --ss-yolk, --ss-yolk2, --ss-brown, --ss-green0, --ss-green1, --ss-green2, --ss-green-login, --ss-red
+    --ss-fieldbg, --ss-lightoverlay, --ss-popupbackground, --ss-scrollmask1, --ss-scrollmask2
+    --ss-text-shadow-1, --ss-box-shadow-1, --ss-box-shadow-2, --ss-btn-dark-bevel, --ss-btn-light-bevel
+    --ss-common-border-width, --ss-space-sm, --ss-space-md, --ss-space-xl, --ss-font-secondary
+    --ss-me-player-bg, --ss-red-btn-fill, --ss-red-btn-outline, --ss-vip-store-bg, --ss-big-message-border-color
+    --ss--chat-height (the chat panel's height; note the double dash)
+  Team colors (--ss-team-blue-... and the like): leave them alone. Players rely on them to tell teams apart.
+
+4.11 How the game behaves (VERIFIED, from the published mods' comments)
+  - A kill counts on the scoreboard only while the killer is alive: trade kills, and grenades that land after the
+    thrower died, show in the kill feed but not in stats.kills.
+  - The server sends a player's kills since their last death or team switch; switching team resets that counter.
+  - The player list stays filled after you leave a game.
+  - The game deletes old chat messages (it keeps only the newest .chat-item nodes), and joining a match empties
+    #chatOut.
+  - reset_yaw_pitch is the game's respawn step: it turns the view to face the spawn direction.
+  - The game creates its WebGL canvas once, at page load: canvas options such as anti-aliasing need a reload.
+  - The game's own Auto Detail checks FPS every 4 s in a match. Under 40 it turns shadows off; the next time it halves
+    the resolution and saves High Res as off.
+  - Settings closes on an Escape keyup. Enter opens the chat.
+  - The game may wrap window.console; capture console.log and console.warn at document-start if you need them later.
+
+
+=====================================================================================================================
+5. CHOOSING HOW TO HOOK IN: LEVELS L0 TO L4
+=====================================================================================================================
+
+Pick the lowest level that can do the job. Each level up breaks more easily when the game updates, conflicts more
+with other mods, and is harder for users to trust. State the level you chose in your answer.
+
+L0  CSS only
+    What:        a <style> element that sets the game's CSS variables and restyles its classes and ids.
+    Good for:    themes, colors, fonts, backgrounds, hiding or moving HUD elements, replacing message text with
+                 ::before content.
+    Breaks when: a class or id is renamed (rare).
+    Published:   Blossom V4 Theme, Cherry Blossom Theme. (Recipe 12.1)
+
+L1  DOM
+    What:        add your own elements (HUD widgets, buttons, cells inside the Settings popup) and read what the
+                 game shows (kill feed text, scoreboard rows).
+    Good for:    overlays, settings UI, reacting to on-screen information.
+    Breaks when: the layout changes. Survives Vue re-renders only if you re-attach (Section 9.6).
+    Published:   Kill Sounds' banner and settings cell; Valorant Sensitivity's settings cell. (Recipes 12.2, 12.5)
+
+L2  The game's Vue app and globals
+    What:        call or wrap methods of window.vueApp, read and $watch its data, use window.extern, window.BAWK
+                 and window.set_mouse_params.
+    Good for:    events the UI already receives (your own kills), opening popups, changing settings exactly the way
+                 the game's own controls do, playing sounds through the game's audio.
+    Breaks when: a method is renamed (rare, because the Vue templates use these names).
+    Published:   Valorant Sensitivity (set_mouse_params, settings); Kill Sounds (shellIngameNotification, BAWK).
+                 (Recipes 12.3, 12.4, 12.6)
+
+L3  Property traps
+    What:        Object.defineProperty on window (for a global the game assigns) or on a prototype, usually
+                 Object.prototype (for one specific property name), so you see every assignment without touching
+                 the game's code.
+    Good for:    capturing an object the moment the game creates it.
+    Breaks when: the property is renamed. Danger: a prototype trap affects every object on the page, so the name
+                 must be unique to the game, and for every other object the trap must behave like a normal property.
+    Published:   Better HUD (its window.BAWK trap); No Chat Cooldown (an accessor on chatLines; the technique is the
+                 example here, the feature itself is retired, Section 1.3). (Recipe 12.7)
+
+L4  Patching the game's code
+    What:        catch the decoded code at document-start (Section 2.2) and rewrite parts of it with anchored
+                 regular expressions before it runs.
+    Good for:    what no other level can reach: exposing an internal object or event to your mod, or changing a
+                 purely visual behavior deep in the renderer.
+    Breaks when: the code around your anchor changes, which can happen with any update. Follow Section 8 in full.
+    Published:   Better HUD's game patches. (Recipe 12.8)
+
+Decision guide
+- "Change how something looks"                      -> L0. If it needs logic, L1.
+- "Show something new on screen"                    -> L1, fed by L2 events or by reading the DOM.
+- "React to a game event"                           -> L2 if the Vue app receives it (wrap the method). Else L4 to
+                                                       expose a small callback.
+- "Add a setting"                                   -> L1 cell in the Settings popup, saved by your own store; L2 when
+                                                       it should drive one of the game's own settings.
+- "Change a value the game uses every frame"        -> L2 if a global carries it (set_mouse_params), else L3 or L4.
+- Two levels would work -> take the lower one.
+
+
+=====================================================================================================================
+6. GETTING AND READING THE GAME'S CODE
+=====================================================================================================================
+
+You only need the game's code for L3 and L4 work, or to find which Vue method an event goes through. You can read it,
+but you never ship it.
+
+6.1 The Code Dumper (tools/Shell-Shockers-Code-Dumper.user.js in this repository)
+- Install it in Tampermonkey and reload the game. The decoded code downloads as
+  shellshock_decoded_<date>_<hash>.js. The hash identifies the build: reloading the same build shows a "Save again"
+  toast instead of downloading it again.
+- It takes the code from the game's own decoder, at the moment the code is written into the <script> element, then
+  as the script is added, then through a MutationObserver. The encoding no longer matters, and nothing is changed.
+- For a clean copy, switch your other Shell Shockers mods off first. Mods that patch the game can change what the
+  dumper sees; it warns in the console when it detects other hooks.
+- If it ever catches nothing (the game changed how it starts), its toast offers "Decode the file": it downloads
+  js/shellshock.js and tries every XOR start from 0 to 127 on the raw bytes, keeping the one that reads as JavaScript.
+- Console: ssCodeDumper.save() saves again; ssCodeDumper.decodeFile() runs the direct decode; ssCodeDumper.status().
+
+  Why the old dumper broke. It was:
+    const { WASM } = await import('https://yolkbot.xyz/browser/module');
+    const decoded = await WASM.processJS(await fetch('https://shellshock.io/js/shellshock.js').then(r => r.text()));
+  - Most likely cause: yolkbot itself changed. The WASM export with processJS existed only in yolkbot 1.5.0 to 1.5.12
+    (January to May 2026). The npm package is now deprecated ("yolkbot 2.0 has been released, which is distributed
+    through a different registry"), the codebase went private in June 2026, and its documentation lists a new API.
+    If yolkbot.xyz/browser/module now serves 2.0 without a WASM namespace, the first line throws.
+  - Other ways it breaks: processJS hard-codes the XOR start 88, so any change of encoding gives garbage; the absolute
+    https://shellshock.io/ address fails when the game is opened on a mirror domain; and it depends on a third-party
+    site staying up and keeping the same exports.
+  Taking the code from the game's own decoder removes every one of these dependencies. Whatever method you use,
+  check that the result starts with "(()=>{".
+
+6.2 Make it readable
+  npx prettier@3 --parser babel --print-width 120 shellshock_decoded_<date>_<hash>.js > shellshock_pretty.js
+Short names stay meaningless, but the structure, strings and property names become readable. Keep the original too:
+patches must match the minified text (Section 8.3), not the pretty one.
+
+6.3 Finding things
+- Search for what does not change: logged strings ("gameJoined_ received", "Object meshes loaded"), property names
+  (playerIdx, reloadCountdown, chatLines), Vue method names (shellIngameNotification, showSettingsPopup), Babylon calls
+  (getAnimationByName, setHardwareScalingLevel, getFps), DOM ids ("FPS"), and distinctive numbers. Text the player
+  reads mostly lives in the page's localization data (vueData.loc), not in the bundle.
+- Read 30 to 50 lines around each hit until you know what the function does and who calls it.
+- Mark each token you might anchor on as STABLE (string, property name, library call, number) or UNSTABLE (short
+  local or global names such as nc, Rc, tP). Only STABLE tokens may appear literally in a patch.
+- Keep old dumps. When a mod breaks after an update, compare the old and new code around the anchor:
+    git diff --no-index --word-diff old_pretty.js new_pretty.js
+
+6.4 What to give an AI
+- The exact snippet you want to change, from the current build's minified file, with about 20 lines of context, plus
+  the build hash from the file name. Not the whole file: it is several megabytes.
+- The AI must write the regex against that snippet and say which tokens it treats as stable.
+
+6.5 Legal and ethical
+- The decoded file is Blue Wizard Digital's copyrighted code. Keep it on your own computer. Never commit it to a
+  public repository, post it, or bundle it in a mod. Blue Wizard has filed at least six DMCA takedowns against Shell
+  Shockers tooling on GitHub since May 2025 (decoded sources, bots, and copies of its WebAssembly among them).
+- Mods contain only your own code and small anchored patches, never copies of the game's functions, its WebAssembly,
+  or its assets.
+- Do not build on cheat clients' per-build name maps or copy code from cheat clients: their hooks are written to
+  hide from the game's checks and to serve features this guide excludes.
+
+
+=====================================================================================================================
+7. EXPLORING IN THE BROWSER CONSOLE
+=====================================================================================================================
+
+Open the game, press F12, choose Console. Run these when you need a fact this file does not mark VERIFIED, and paste
+the output to your AI. They only read, or log, so they are safe to run.
+
+7.1 The Vue app (works on Vue 2 and Vue 3)
+  Object.keys(vueApp.$options.methods || {}).sort()     // what the UI can do
+  Object.keys(vueApp.$data || {}).sort()                // what the UI knows
+  Object.keys(vueApp.$refs || {}).sort()                // components it keeps references to
+  vueApp.$refs.settings                                 // the Settings component (when it exists)
+
+7.2 Log every call to one Vue method, to learn when the game calls it and with what
+  (name => { const app = vueApp, f = app[name];
+    app[name] = function (...a) { console.log("[probe]", name, a); return f.apply(this, a); }; })("shellIngameNotification");
+  Reload the page to remove the probe.
+
+7.3 Watch one value (here game.isPaused; any key from 7.1 works)
+  const stopWatch = vueApp.$watch(() => vueApp.$data.game && vueApp.$data.game.isPaused, (now, before) => console.log(before, "->", now));
+  stopWatch();   // stop
+
+7.4 Globals the game adds to window
+  (() => { const f = document.body.appendChild(document.createElement("iframe")); const clean = new Set(Object.keys(f.contentWindow));
+    f.remove(); return Object.keys(window).filter(k => !clean.has(k)).sort(); })()
+
+7.5 DOM
+  [...document.querySelectorAll("[id]")].map(e => e.id).sort()            // every id on the page now
+  document.querySelector("#settings_misc")                                // open Settings first
+  getComputedStyle(document.documentElement).getPropertyValue("--ss-blue3") // a theme variable's current value
+  Right click an element -> Inspect shows its classes, so you can reuse them.
+
+7.6 Which element is under the crosshair or a HUD item
+  document.elementsFromPoint(innerWidth / 2, innerHeight / 2).map(e => e.id || e.className)
+
+7.7 Measure
+  (() => { let n = 0; const t = performance.now(); const f = () => { n++; if (performance.now() - t < 1000) requestAnimationFrame(f);
+    else console.log("FPS", n); }; requestAnimationFrame(f); })()
+
+
+=====================================================================================================================
+8. PATCHING THE GAME'S CODE SAFELY
+=====================================================================================================================
+
+Only when levels L0 to L3 cannot do the job (Section 5). The published mods went through two generations, and the
+second is the one to copy:
+  First (Better UI V4.6 and V4.7): two separate appendChild hooks, each reading and rewriting the whole 3.3 MB script
+  through innerHTML; anchors on two-letter names; failures swallowed silently.
+  Second (Stats Mod 2.0, Better HUD 6): one pipeline, the native textContent accessor, anchors on stable tokens with
+  uniqueness checks, idempotent patches, and one report line. Better HUD measured the change: three hooks cost 58 to
+  76 ms before the game could start; one pass costs a fraction of that.
+
+8.1 Where the code is (VERIFIED: Better HUD 6.1.0, Stats Mod 2.0.3)
+- One inline <script>, about 3.3 MB, whose text starts with "(()=>{". The page adds it with appendChild once the
+  WebAssembly has decoded it (Section 2.2).
+- Select it by: tagName "SCRIPT", no src, text length at least 100,000, text starts with "(()=>{", not seen before.
+- Read and write its text with the NATIVE Node.prototype textContent accessor, captured when your script starts.
+  Not innerHTML (it re-parses HTML and is slower), and not the element's own property (another mod may wrap it).
+- Be clear about what this is. The game reads its script's text back to check it (Section 2.2, step 5). The pipeline
+  below makes that read return the original text, so the patched code can run. That works around a protection the
+  developers built against cheating, which is exactly why L4 is the last resort and why it is used only for the
+  fair-play features Section 1 allows (exposing the player list for stats, display tweaks). Never go further: do not
+  hide elements or hooks from the game, block or fake what its WebAssembly reads, or touch its WebAssembly functions
+  (Section 1.2).
+  Every code-patching mod carries some risk for its users, so say so in the README, as Better HUD's disclaimer does
+  ("moderators may still act against use of any third-party scripts").
+
+8.2 The shared pipeline: window.__ssbPatches
+Better HUD exposes its pipeline as window.__ssbPatches = { add(name, fn) }. Whichever script runs first creates it,
+and every other script adds its patches to it, so the game's code is read once, patched in order, written back once,
+and reported in one line. Use it. If your mod may run without Better HUD, include this exact implementation (Better
+HUD 6.1.0's own; MIT, Copyright (c) 2026 ViroGear: keep a one-line credit above it). It only creates the pipeline
+when no other script has:
+
+  window.__ssbPatches = window.__ssbPatches || (function () {
+      var patches = [];
+      var originals = new WeakMap();
+      var nodeText = Object.getOwnPropertyDescriptor(Node.prototype, "textContent");
+      var nativeAppend = HTMLElement.prototype.appendChild;
+      HTMLElement.prototype.appendChild = function (node) {
+          if (patches.length && node && node.tagName === "SCRIPT" && !node.src && !originals.has(node)) {
+              var src = nodeText.get.call(node);
+              if (src && src.length > 100000 && src.startsWith("(()=>{")) {
+                  var orig = src, applied = [], missed = [], t0 = performance.now();
+                  for (var i = 0; i < patches.length; i++) {
+                      try {
+                          var out = patches[i].fn(src);
+                          if (typeof out === "string" && out !== src) { src = out; applied.push(patches[i].name); }
+                          else missed.push(patches[i].name);
+                      } catch (e) { missed.push(patches[i].name + " (error)"); console.warn("[Better HUD] Patch '" + patches[i].name + "' failed:", e); }
+                  }
+                  originals.set(node, orig);
+                  if (src !== orig) nodeText.set.call(node, src);
+                  var ms = +(performance.now() - t0).toFixed(1);
+                  window.__ssbPatchReport = { applied: applied, missed: missed, ms: ms };   // readable from the console
+                  console.log("[Better HUD] Game patches: " + applied.length + " applied" + (applied.length ? " (" + applied.join(", ") + ")" : "") +
+                      (missed.length ? "; NOT applied: " + missed.join(", ") + " (game updated?)" : "") + " in " + ms + " ms");
+              }
+          }
+          return nativeAppend.call(this, node);
+      };
+      var scriptText = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, "textContent") || nodeText;
+      Object.defineProperty(HTMLScriptElement.prototype, "textContent", {
+          get: function () { var o = originals.get(this); return o !== undefined ? o : scriptText.get.call(this); },
+          set: scriptText.set, configurable: true, enumerable: true
+      });
+      return { add: function (name, fn) { patches.push({ name: name, fn: fn }); } };
+  })();
+
+Then, still at document-start, register each patch with window.__ssbPatches.add("myMod:what", fn). Sections 8.4 and
+8.5 are complete examples.
+
+Notes:
+- Keep that block byte-for-byte compatible with Better HUD's: whichever mod creates the pipeline, every user sees the
+  same line, starting "[Better HUD] Game patches:", which Better HUD's README tells people to look for. Say in your
+  own README that your patches are reported on that line.
+- add() must be called at document-start, before the game's script is added. Name patches "modName:what".
+- fn(src) gets the source after the earlier patches. Returning a different string counts as applied; returning the
+  same string (or anything else) counts as NOT applied; throwing counts as NOT applied (error).
+- Reading the element's textContent afterwards returns the original source, so other tools still see the game's
+  own code.
+
+8.3 Writing a patch that survives rerolls
+   1. Anchor on STABLE tokens only: string literals ("gameJoined_ received", "FPS"), property and method names after
+      a dot (.playerIdx, .isDead(), .scoreKill(), .unPackInt8U(), .reloadCountdown), Babylon API names (.layerMask,
+      .getAnimationByName), DOM API calls (document.getElementById("FPS")), distinctive numbers (536870912).
+   2. Capture every short name with ([\w$]+). "$" is a legal identifier character and minifiers use it; \w alone
+      misses it. Never write a short name literally.
+   3. Prefer indexOf plus a walk-back to a giant regex: find the stable anchor, then step back over [\w$] characters
+      to read the identifier in front of it.
+   4. Check uniqueness: the anchor must occur exactly as often as you expect (usually once). Otherwise return the
+      source unchanged.
+   5. Build follow-up regexes from captured names, escaped: name.replace(/\$/g, "\\$").
+   6. Replace with a function, never a replacement string: src.replace(re, () => text). In a replacement string,
+      "$&", "$1" and "$$" are special, and a captured minified name can contain "$".
+   7. Use String.prototype.replaceAll captured when your script starts (another script might wrap it).
+   8. Insert as little as possible: an assignment that exposes a value (window.players = X), or a guarded call to a
+      hook of yours (window.__myModOnX && window.__myModOnX(a)). Keep the logic in your mod, not in the injected text.
+   9. Be idempotent: if your insertion is already there (another copy of the mod, or another mod made the same
+      addition), return the source unchanged.
+  10. Keep the game's behavior: the patched code still does everything the original did. Injected calls must never
+      throw into the game.
+  11. Search near the anchor (src.slice(at, at + 4000)) when you need context, not the whole 3.3 MB again.
+  12. Prefer indexOf to regular expressions over the whole source when you can: Better HUD measured 0.7 ms against
+      28 ms for one anchor.
+  13. Some of the game's strings sit behind the obfuscator's string lookups (calls shaped like X("0x5")), so they are
+      not visible as text. Anchor only on strings you can actually see in the minified file.
+  14. Character classes: write [A-Za-z], never [A-z] (it also matches [ \ ] ^ _ and the backtick). In a regex built
+      from a captured name, escape "$" as "\$"; in a replacement string a literal "$" is "$$". Function replacements
+      avoid the second problem entirely (rule 6).
+
+8.4 Example: expose the game's player list (VERIFIED, Stats Mod 2.0.3)
+  const replaceAll = String.prototype.replaceAll;
+  window.__ssbPatches.add("myMod:players", src => {
+    if (src.includes("window.players=")) return src;            // already exposed by another mod
+    const k = src.indexOf("[this.playerIdx]");                    // stable: a property name
+    let j = k;
+    while (j > 0 && /[\w$]/.test(src[j - 1])) j--;                // walk back over the array's (short) name
+    if (k < 1 || j === k) return src;
+    const name = src.slice(j, k);
+    // The list is rebuilt for each match: every "name=[]" re-exports it.
+    return replaceAll.call(src, name + "=[]", () => name + "=[],window.players=" + name);
+  });
+  Afterwards window.players is the game's player array and each entry has (VERIFIED): name, safeName, team (1 blue,
+  2 red), stats.kills, stats.deaths, totalKills, gameData.mapIdx. Use it for stats only (Section 1): other players'
+  positions or health are out of scope.
+  Why it is safe today, and what would break it: the game assigns the list in expression context (name=[]), so
+  appending ",window.players=name" stays valid JavaScript. If a build ever declared it instead (var name=[]), the same
+  insertion would be a syntax error and the game would not start. That is what the offline check in 8.6 catches.
+
+8.5 Example: expose your own slot in that list (VERIFIED, Stats Mod 2.0.3)
+  window.__ssbPatches.add("myMod:my-player-idx", src => {
+    if (src.includes("window.myPlayerIdx=")) return src;
+    const m = /gameJoined_ received"\),([\w$]+)=[\w$]+\.unPackInt8U\(\)/.exec(src) || /([A-Z]{2})=[A-Za-z$_]+\.unPackInt8U\(\)/.exec(src);
+    return m ? replaceAll.call(src, m[0], () => m[0] + ",window.myPlayerIdx=" + m[1]) : src;
+  });
+  This is the Stats Mod's regex with [\w$] in place of \w (rule 2). Note the fallback: the first regex anchors on a
+  string the game logs; the second is the older two-letter form kept as a backup. Then
+  window.players[window.myPlayerIdx] is you; vueApp.$data.game.myPlayerIdx is a second source.
+
+8.6 Failing soft
+- If any check fails, return the source unchanged: the game runs as if your mod were not there, and the report line
+  says NOT applied.
+- The rest of the mod checks before relying on a patch:
+    if (!Array.isArray(window.players)) return;   // the patch did not apply this build: show nothing, say so once
+- Never leave half-patched code: build the complete new source, then return it.
+- Before you publish (and after every game update), run your patches offline against the current dump and make sure
+  the result still parses. A patch that produces invalid JavaScript stops the game from loading at all. Keep your
+  add() calls in a file of their own (my-patches.js) while developing, and run them with this checker:
+    // check-patches.js   usage: node check-patches.js shellshock_decoded_<date>_<hash>.js
+    const fs = require("fs");
+    const patches = [];
+    global.window = { __ssbPatches: { add: (name, fn) => patches.push([name, fn]) } };   // collects them like the pipeline
+    require("./my-patches.js");
+    let src = fs.readFileSync(process.argv[2], "utf8");
+    for (const [name, fn] of patches) {
+      const out = fn(src);
+      const applied = typeof out === "string" && out !== src;
+      console.log((applied ? "applied      " : "NOT applied  ") + name);
+      if (applied) src = out;
+    }
+    new Function(src);   // throws a SyntaxError if the patched code is not valid JavaScript
+    console.log("The patched code parses.");
+
+8.7 Reading the report
+  [Better HUD] Game patches: 6 applied (a, b, c, d, myMod:players, myMod:my-player-idx) in 21.4 ms
+  [Better HUD] Game patches: 5 applied (...); NOT applied: myMod:players (game updated?) in 19.8 ms
+  window.__ssbPatchReport   // { applied: [...], missed: [...], ms }
+Tell users to look for this line when something breaks after an update (Better HUD's README does).
+
+8.8 Never patch
+- Anything in Section 1.2: aim, visibility, movement, combat, timing, or the network messages the game sends.
+- The game's own checks (rate limits, validation). Removing a client check the server enforces only gets the user
+  kicked or flagged.
+
+
+=====================================================================================================================
+9. ARCHITECTURE AND CODE STANDARDS
+=====================================================================================================================
+
+These standards come from the published mods. Code that follows them is easy to review, easy to fix after an update,
+and safe to run next to other mods.
+
+9.1 File layout, in this order
+   1. Metadata block (Section 3.2).
+   2. A plain-language comment for a player who opens the file: what the mod does, how it hooks in (level and game
+      names used), what it stores, what it downloads, and its public API.
+   3. (() => { "use strict"; ... })();
+   4. The double-run guard: if (window.ssMyMod) return;
+   5. Constants (VERSION, STORE, DEFAULTS, ids), each magic number with a comment saying where it comes from.
+   6. The settings store (9.3).
+   7. Feature code in sections under comment banners, for example /* ---- The kill hook ---- */
+   8. UI code: injectUI(), removeUI(), refresh().
+   9. Lifecycle: tick(), start(), stop().
+  10. The public API on window, then start(), then the Mod Menu registration.
+
+9.2 Names: pick one short name and derive everything from it
+  window global       ssMyMod                      camelCase with the ss prefix
+  localStorage key    "ssMyMod"                    the same word
+  DOM ids             ss-my-mod, ss-my-mod-style   kebab-case with the ss- prefix
+  CSS classes         ssmm-row, ssmm-note          a short prefix unique to the mod
+  Symbol marks        Symbol.for("ssMyMod.hook")
+  Console prefix      [My Mod]
+  Mod Menu id         "my-mod"
+
+9.3 The settings store
+  const DEFAULTS = Object.freeze({ enabled: true, volume: 0.8, color: "#ffffff" });
+  // Everything read from storage, typed by the user, or imported goes through clean(): wrong types and out-of-range
+  // values fall back to the defaults, so a damaged or old save can never break the mod.
+  function clean(s) {
+    const ok = !!s && typeof s === "object";
+    return {
+      enabled: ok && typeof s.enabled === "boolean" ? s.enabled : DEFAULTS.enabled,
+      volume: ok && Number.isFinite(s.volume) ? Math.min(1, Math.max(0, s.volume)) : DEFAULTS.volume,
+      color: ok && /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : DEFAULTS.color,
+    };
+  }
+  let saved;
+  try { saved = clean(JSON.parse(localStorage.getItem(STORE))); } catch { saved = clean(null); }
+  function save(s) {
+    saved = clean(s);
+    try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch { /* storage blocked: kept for this visit */ }
+  }
+- When a setting changes shape in a new version, clean() accepts the old shape too (Kill Sounds still reads the
+  banner: "off" that one early build saved). Never wipe a user's settings on update.
+
+9.4 Waiting for things
+- The body:
+    document.body ? fn() : document.addEventListener("DOMContentLoaded", fn, { once: true });
+- <html> at document-start (to add a <style> before anything renders):
+    document.documentElement ? add() : new MutationObserver((_, o) => document.documentElement && (o.disconnect(), add()))
+      .observe(document, { childList: true });
+- The game's objects (vueApp, BAWK, a Settings section): look for them in tick() every second and act when they
+  appear. Never wait with a tight loop or a requestAnimationFrame poll.
+
+9.5 Lifecycle: start() and stop()
+  let running = false, timer = 0;
+  function start() {
+    if (running) return;
+    running = true;
+    document.addEventListener("click", onClick, true);
+    tick();
+    timer = setInterval(tick, 1000);
+  }
+  function stop() {
+    if (!running) return;
+    running = false;
+    clearInterval(timer);
+    document.removeEventListener("click", onClick, true);
+    unhook();
+    removeUI();
+  }
+- stop() leaves the page as if the mod never ran: hooks inert, listeners removed, timers cleared, observers
+  disconnected, its elements and styles removed, its sounds stopped.
+- Both are safe to call twice in a row. The Mod Menu calls them when the user flips the switch.
+- Hooks check `running` (or their own live flag) every call, so a stopped mod passes everything straight through.
+
+9.6 The tick: re-attaching after re-renders
+  function tick() {
+    if (!running) return;
+    if (!hooked || hooked.app !== window.vueApp) hook();   // the app object can be replaced: hook the new one
+    if (!ui || !ui.cell.isConnected) injectUI();            // Vue removed our cell with its parent: add it again
+  }
+- Vue replaces DOM nodes when it re-renders. A cell you put into a Settings tab is gone when that tab re-renders or
+  the popup closes; el.isConnected tells you.
+- One second is fast enough for anything the user opens by hand, and costs nothing.
+- For something that must react at once (a HUD element appearing as a match starts), use a MutationObserver on the
+  smallest container that holds it, never on document with subtree: true for long, and disconnect it in stop().
+
+9.7 Error boundaries
+- Every function the game calls into (your wrappers, setters, traps, patched-in callbacks) catches its own errors
+  and still does the game's work. An exception escaping into the game's code can freeze a match.
+    const wrap = function (...args) {
+      if (state.live && running) { try { onEvent(args[0]); } catch (err) { warn(err); } }
+      return orig.apply(this, args);
+    };
+- Event handlers, timers and promise chains catch and log too, once per problem.
+- Read arguments BEFORE calling the original when the game may change them: Kill Sounds reads the notification
+  object first because the game rewrites it.
+
+9.8 Performance budget
+- Players run this game at 60 to 240 FPS, often on weak laptops. Your mod should not show up in a profile.
+- Per frame: nothing, unless per-frame is the feature. If it is: no layout reads (offsetWidth,
+  getBoundingClientRect, getComputedStyle), no allocations, no DOM writes that change layout.
+- Timers: one second for housekeeping. Skip work while document.hidden is true or while it is not needed (Better HUD
+  runs its menu housekeeping on one shared timer that sleeps while the tab is hidden or a match is on; Recipe 12.13).
+- Heavy work (rendering sounds, decoding files, building images) runs once, ahead of time or after a user action, and
+  is cached: Kill Sounds renders each kill sound once with an OfflineAudioContext and reuses it.
+- Memory: keep what you need and drop the rest (Kill Sounds keeps two sound packs at most), revoke object URLs, and
+  drop references to removed elements.
+
+9.9 Security and privacy
+- Untrusted text (player names, chat, server names, imported codes) goes in with textContent or as attribute values,
+  never through innerHTML.
+- Never eval, new Function, or inject a <script> with code you downloaded.
+- Network: only what the feature needs, from a pinned address (a commit SHA, not a branch), stated in the README.
+  Kill Sounds downloads its sound files from one fixed commit and keeps them in Cache Storage.
+- Never touch account data, tokens or Firebase storage. Read the game's own storage only when you must; never write it.
+- User files (sounds, images) stay in the browser (IndexedDB, Cache Storage). Say so in the README.
+
+9.10 Comments
+- Explain why, in plain words: "Read before calling the game: it rewrites the message object." Do not narrate what
+  the next line obviously does.
+- Every number taken from the game says where it came from: "1.25 rad: the game's vertical view from the hip".
+- The top comment explains how the mod works and where it hooks in, so the next person (or AI) can fix it after an
+  update without reverse engineering it again.
+
+9.11 The public API
+  window.ssMyMod = {
+    version: VERSION,
+    settings: () => ({ ...saved }),
+    set(s) { save({ ...saved, ...s }); return { ...saved }; },
+    status: () => ({ running, hooked: !!hooked, uiShown: !!ui && ui.cell.isConnected }),
+  };
+- status() answers "is it running, is it hooked, is its UI there" in one line, for the user and for bug reports.
+- Add what helps testing without a match: Kill Sounds has ssKillSounds.play(3) to hear and see kill 3.
+
+
+=====================================================================================================================
+10. MAKING IT LOOK AND FEEL NATIVE
+=====================================================================================================================
+
+The test: a player who has never seen your mod should think it shipped with the game. Every published Virojet mod
+passes it by putting things where the game would, with the game's own parts.
+
+10.1 Where things go
+- A few options      -> a cell in the right tab of the game's Settings: the keyboard tab for mouse and key options
+                        (Valorant Sensitivity puts its cell under Mouse Speed), the speaker tab (#settings_misc) for
+                        everything else (Kill Sounds appends to its grid). Recipe 12.2.
+- A hotkey           -> a key row in the keyboard tab, built like the game's (Stats Mod's "Match History" row:
+                        div.nowrap > input.ss_keybind.clickme.text_blue8 + div.label). Section 10.5.
+- Many options       -> whole tabs of your own in the tab strip, cloned from the game's tab buttons (Better HUD's
+                        MODS and CROSSHAIR, Section 11.5).
+- A home-screen button -> inside the game's own button row (.play-panel-btn-group), with the game's button classes
+                        (ss_button btn_big btn_blue bevel_blue box_relative), so the row sizes and aligns it (Stats Mod).
+- A HUD element      -> position: fixed, sized in vh like the game's HUD, pointer-events: none, placed against the
+                        game's layout: the crosshair is the screen's center; the game's kill message starts 67% of the
+                        way down (63% with a Shell Streak); Kill Sounds' banner sits between them at 52vh. Recipe 12.5.
+- A window or dialog -> a copy of the game's popup look (gradient panel, Sigmar One title, beveled buttons), centered,
+                        Esc closes it, nothing opens by itself mid-match.
+
+10.2 The game's visual language
+- Fonts: Nunito for text (bold, 700 to 900), Sigmar One for titles and big messages. The game loads both; never load
+  fonts yourself for the live page.
+- Palette, as Better HUD and the Stats Mod match it: ink #0C576F, blue #0E7697, bright blue #0b93bd and #1192bc,
+  highlight #2db8d4, panel #8ED9E8, card #b5e8f7, deep #0d3d4f, line #b0d8e8, yolk #ff9800 and #FF981F, red #d82727,
+  green #13ba65. Prefer the game's own variables where one exists, var(--ss-blue3, #04a2d1), so a theme mod such as
+  Blossom recolors your UI with the rest.
+- Buttons: the game's classes. ss_button plus a color (btn_blue, btn_green, btn_yolk, btn_red) plus its bevel
+  (bevel_blue, bevel_green, bevel_yolk) plus a size (btn_sm, btn_big). Text on buttons has the game's shadow,
+  rgba(0,0,0,.3) .1em .1em 0.
+- Controls: checkbox = label.ss_checkbox.label > input[type=checkbox] + span.checkmark; slider = input.ss_slider with a
+  label.ss_slider.label.text_blue4 for its value; select = select.ss_select; text field = .ss_field; key box =
+  input.ss_keybind. Layout: .f_row, .f_col, .display-grid, .nowrap, .ss_margintop, .ss_marginright_sm. Muted text:
+  .text_blue4. A settings heading: h3.margin-bottom-none.h-short.
+- Size: the game's UI is in em and vh off its 1.95vh base. Size your elements in em (inside the game's containers)
+  or vh (fixed overlays). If you build a pixel-designed panel, scale it by rootFontSize / 21.06 (Stats Mod's
+  applyScale, Better HUD's --ssb-ui-scale), and reset font-size inside it so the 1.95vh rule does not leak in.
+- Layering: tooltips, dialogs and toasts at the top (Better HUD uses 2147483647, its stats overlay 2147483646);
+  HUD overlays just below; nothing of yours may cover the game's own popups unless the user opened yours.
+
+10.3 Settings that behave like the game's
+- A cell inside one of the game's tabs honors the footer: while the popup is open, the controls edit a pending copy;
+  Confirm (.btn_green) saves it; Reset to Defaults (.btn_yolk) puts defaults in the controls without saving; Cancel
+  (.btn_red), the X and Escape drop the pending copy. Detect open and close with an IntersectionObserver on #settings
+  (or getClientRects().length), and put the saved values back in the controls each time. Listen for the footer with a
+  capture-phase click listener on document, so you run before the game closes the popup. Recipe 12.2.
+- A whole tab of your own may apply changes at once, as Better HUD's MODS tab does, with its own Reset buttons and an
+  in-game confirm for anything destructive.
+- When an option drives one of the game's own settings (Mouse Speed), change it through the game's own handler
+  ($refs.settings.onSettingAdjusted) so the game's Confirm and Cancel apply to it too (Valorant Sensitivity).
+- Sounds, through BAWK.play (Section 4.4): ui_onchange when a checkbox, select or slider changes; ui_click for
+  buttons; ui_toggletab for opening and closing; ui_popupopen for dialogs. Always inside try/catch.
+
+10.4 Words
+- Short, plain, second person, the game's tone: "A sound on each of your kills." Headings in Title Case like the
+  game's ("Kill Sounds", "Match History"); descriptions in sentence case.
+- One short note line under a control; the detail goes in its tooltip (title, or one shared tooltip element as Better
+  HUD does). Errors in red: var(--ss-red, #d15354).
+- No emoji, no exclamation marks, no "ULTIMATE", no "by YourName" banners inside the game's UI. The credit goes in the
+  README and, for big mods, one quiet footer line.
+
+10.5 Keyboard
+- Ignore keys while the user types: the focus is in input, textarea, select or a contenteditable element, or in the
+  chat box (#chatIn). Also ignore e.repeat, and Ctrl, Meta or Alt (except AltGraph).
+- In your own text fields: stopPropagation on keydown (let Escape through), so typing never reaches the game; Enter
+  blurs the field.
+- Capturing a key for a binding: a capture-phase keydown listener on window while the box is focused;
+  preventDefault and stopImmediatePropagation; swallow the matching keyup too (the game closes Settings on an Escape
+  keyup: Better HUD's __ssbEatKeyUp exists for this); Escape cancels, Backspace or Delete clears; refuse Enter (it
+  opens chat) and any key the game binds (read vueApp.$data.settingsUi.controls.keyboard.game and .spectate), showing
+  "IN USE" for a moment. Stats Mod's key row is the reference.
+- Hotkeys: configurable, defaulting to a key the game leaves free (the Stats Mod uses \); a capture-phase keydown on
+  document; preventDefault only when the key is yours.
+
+10.6 Pointer lock and play
+- document.pointerLockElement set means the player is in play. Menu work waits: the Stats Mod's tick returns early;
+  Better HUD's scheduler pauses menu tasks and its settings builder does nothing until the pointer is unlocked.
+- Overlays: pointer-events: none, never over the crosshair, never over the game's kill message, gone or faint when
+  not needed (Cherry Blossom hides its petals while you aim).
+- Never take pointer lock, focus or the keyboard from the game; never open a popup by yourself mid-match (Better HUD's
+  dialogs resolve as cancelled when the pointer is locked).
+
+10.7 Motion
+- Element.animate (the Web Animations API), short (150 to 700 ms), on transform and opacity only.
+- Respect matchMedia("(prefers-reduced-motion: reduce)"): fade instead of moving.
+
+10.8 Accessibility
+- Real <button type="button"> elements; a label or aria-label for every input; a visible focus outline; every control
+  usable with the keyboard (Tab, Space, Enter); text contrast at least as good as the game's.
+
+
+=====================================================================================================================
+11. WORKING WITH OTHER MODS
+=====================================================================================================================
+
+11.1 The Mod Menu protocol (window.ssModMenuQueue)
+Valorant Sensitivity, Valorant Kill Sounds and the Stats Mod announce themselves to a Mod Menu, a separate script
+(not in any of these repositories) that lists installed mods with an on/off switch and a shortcut to their settings.
+Do the same; it costs one statement and is harmless when no Mod Menu is installed (the array just waits):
+
+  (window.ssModMenuQueue = window.ssModMenuQueue || []).push({
+    id: "my-mod",                 // kebab-case, unique, never changes
+    name: "My Mod",               // what the player sees
+    version: VERSION,
+    group: "mod",                 // every published mod uses "mod"
+    description: "One sentence on what the player gets.",
+    enable: start,                // your start(): safe to call twice
+    disable: stop,                // your stop(): undoes everything
+    openSettings,                 // opens the game's Settings at your controls; returns true, or false if it can't
+  });
+
+- Push once, after your public API exists, at the end of the IIFE (or in boot(), as the Stats Mod does).
+- If your mod stands itself down later (for example because Better HUD turned up), also call
+  window.ssModMenu?.unregister?.("my-mod") (Stats Mod). That is the only consumer API the producers rely on.
+- openSettings: vueApp.showSettingsPopup(), then click #misc_button or #keyboard_button (or call
+  vueApp.onSettingsPopupSwitchTabMisc()), then run your tick() so your cell is there. Recipe 12.2 has the code.
+
+11.2 Better HUD
+- Detect it: const betterHud = () => !!(window.SSB_VERSION || window.__ssbSettings || window.__ssbOpenHistory);
+- If your feature duplicates one of Better HUD's (match history and live stats, FPS and ping display, crosshair
+  editor, chat history, server picker, render scale, volume slider), stand down while it runs: check at load, at
+  DOMContentLoaded and in every tick, because Better HUD may start after you. The Stats Mod is the model.
+- Shared match history: Better HUD and the Stats Mod share localStorage tp-statsHistory (the last 40 matches, newest
+  first: { code, map, server, mode, startMs, endMs, kotc: {1,2}, players: [{ name, team, kills, deaths, isMe }],
+  label? }), tp-statsSession and tp-showMatchHistory. Read them if you build on that history; write them only with the
+  same schema.
+- Its code patches go through window.__ssbPatches (Section 8.2); add yours there too.
+- Better HUD also exposes window.__ssbUI (in-game toast, confirm and prompt) and window.__ssbSettings (its MODS tab
+  registry). They are internal: use them only when present, and keep your own fallback.
+
+11.3 Hooks that stack
+- Wrap what is there now, call it, and keep a live flag (Recipe 12.6). Never restore a saved original unless the
+  current value is still your own wrapper: another mod may have wrapped yours since.
+- Re-check in tick(): if the function is no longer yours (another mod replaced it, or the app was replaced), hook the
+  new one. Keep yours the outermost only when it must be (Better HUD re-wraps its inventory filter for that).
+- Never depend on load order. Tampermonkey runs scripts in its list order; the last one to wrap a function runs
+  first.
+
+11.4 Names and storage
+- Prefix every id, class, CSS variable, storage key, global and Symbol with your mod's own name (Section 9.2).
+- Better HUD's own prefixes are tp-, ch2- and ssb- (storage) and ssb-, mod-, ch2- (ids). Do not use them for a
+  different purpose.
+
+11.5 Adding whole tabs to Settings (only for big mods)
+Better HUD's approach: when #settings_misc exists and its own section does not, append its sections to
+#popupInnards, clone the first native tab button's classes for its new tab buttons (minus the active class), toggle
+a class on #popupInnards to hide the native panes (.settings-content, #settings_keyboard, #settings_controller,
+#settings_misc) while a mod tab is active, close the mod tab when a native tab is clicked, and remember the last tab.
+It rebuilds from a debounced MutationObserver that ignores its own changes and pauses during pointer lock. It is a lot
+of code to get right: prefer a cell (Recipe 12.2) unless you really need a whole tab.
+
+
+=====================================================================================================================
+12. RECIPES (COMPLETE, COPYABLE CODE)
+=====================================================================================================================
+
+Each recipe is taken from a published mod and trimmed to the essentials. Rename ss-my-mod, ssMyMod and [My Mod] to
+your mod's own names (Section 9.2). Appendix B joins most of them into one complete, tested mod.
+
+12.1 A theme in CSS only (L0)  [Blossom V4 Theme, Cherry Blossom Theme]
+  (() => {
+    "use strict";
+    if (document.getElementById("ss-my-theme-style")) return;
+    const css = document.createElement("style");
+    css.id = "ss-my-theme-style";
+    css.textContent = `
+      /* The game paints its UI with --ss-* variables, so most of a theme is new values for them. html:root outranks
+         the game's :root, so these win even before the style moves into <body>. */
+      html:root { --ss-blue3: #1f6f4a; --ss-blue4: #e9c46a; --ss-yolk: #e9c46a; --ss-yolk2: #e9c46a; }
+      .load_screen { background: #10261c; }
+      #progressBar { background: #e9c46a !important; }
+      /* The game writes "You killed" into this heading: hide its text and show your own in its place. */
+      #kill-death-box .killed h3 { visibility: hidden; line-height: 0; }
+      #kill-death-box .killed h3::before { content: "You cracked"; display: block; visibility: visible; line-height: 1.1; }
+    `;
+    // At document-start <head> may not exist yet, so the style goes on <html> and the loading screen is themed from its
+    // first frame. Once <body> exists it moves there, after every stylesheet in <head>, so it wins ties with the game's.
+    const settle = () => document.body.appendChild(css);
+    const mount = () => {
+      document.documentElement.appendChild(css);
+      document.body ? settle() : document.addEventListener("DOMContentLoaded", settle, { once: true });
+    };
+    document.documentElement ? mount()
+      : new MutationObserver((_, o) => document.documentElement && (o.disconnect(), mount())).observe(document, { childList: true });
+  })();
+  - Leave team colors alone. Keep text readable on every panel you recolor (Blossom V4 gives light pink surfaces dark
+    text for this reason).
+  - Images: from a pinned address (a commit SHA), disclosed in the README.
+
+12.2 A settings cell in the game's Settings, honoring Confirm, Reset and Cancel (L1)  [Kill Sounds, Valorant Sensitivity]
+  The complete, tested code is Appendix B (functions injectUI, removeUI, revert, refresh, onClick, openSettings). The
+  parts that matter:
+  - Find the place: document.querySelector("#settings_misc > .display-grid"). Not there: the popup is closed; try
+    again next tick.
+  - Build with the game's classes (Section 10.2); give the cell an id; add one <style> scoped to that id.
+  - Keep `pending` (a cleaned copy of `saved`) while the popup is open. Controls change pending only.
+  - An IntersectionObserver on #settings puts `saved` back in the controls whenever the popup opens or closes.
+  - A capture-phase click listener on document handles the footer:
+      const b = e.target instanceof Element && e.target.closest("#settings .grid-column-3-eq > button");
+      if (!b || b.classList.contains("ss_bigtab")) return;
+      if (b.classList.contains("btn_green")) save(pending);              // Confirm
+      else if (b.classList.contains("btn_yolk")) revert({ ...DEFAULTS }); // Reset to Defaults: shown, not saved
+      else if (b.classList.contains("btn_red")) revert({ ...saved });     // Cancel
+  - tick() re-injects the cell when !ui.cell.isConnected (Vue removed it).
+  - openSettings(): vueApp.showSettingsPopup(); document.getElementById("misc_button").click() (or
+    vueApp.onSettingsPopupSwitchTabMisc()); tick().
+
+12.3 React to your own kills (L2)  [Kill Sounds]
+  const MARK = Symbol.for("ssMyMod.killHook");
+  let hooked = null;   // { app, orig, wrap }
+  function hook() {
+    const app = window.vueApp, cur = app && app.shellIngameNotification;
+    if (typeof cur !== "function") return false;
+    if (cur[MARK]) { cur[MARK].live = true; hooked = { app, orig: cur[MARK].orig, wrap: cur }; return true; }   // ours already
+    const state = { live: true, orig: cur };
+    const wrap = function (item) {
+      // Read before calling the game: it rewrites the message object. type 0 is one of YOUR kills.
+      if (state.live && running && item && item.type === 0) {
+        try { onKill(Number(item.streak) || 1); } catch (err) { warn(err); }
+      }
+      return cur.apply(this, arguments);
+    };
+    wrap[MARK] = state;
+    try { app.shellIngameNotification = wrap; } catch { return false; }
+    if (app.shellIngameNotification !== wrap) return false;
+    hooked = { app, orig: cur, wrap };
+    return true;
+  }
+  function unhook() {
+    if (!hooked) return;
+    const { app, orig, wrap } = hooked;
+    hooked = null;
+    wrap[MARK].live = false;   // if another mod wrapped ours since, ours stays in the chain but does nothing
+    try { if (app.shellIngameNotification === wrap) app.shellIngameNotification = orig; } catch { /* left as is */ }
+  }
+  // In tick(): if (!hooked || hooked.app !== window.vueApp) hook();
+
+12.4 Sounds: the game's UI sounds, and your own through the game's output (L2)  [Better HUD, Stats Mod, Kill Sounds]
+  const uiSound = name => { try { window.BAWK?.play?.(name); } catch { /* the game's sounds aren't ready yet */ } };
+  // Your own sounds join the game's Sound Effects output, so its volume setting applies to them too.
+  function output() {
+    const B = window.BAWK, ctx = B && B.audioCtx, node = B && B.gainNode;
+    if (!ctx || !node || ctx.state === "closed") return null;
+    return node.gain.value > 0 ? { ctx, node } : null;   // 0: the user turned the game's sound off
+  }
+  function play(buffer, volume = 1) {
+    const out = output();
+    if (!out || !buffer || !(volume > 0)) return;
+    const { ctx, node } = out;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    const src = ctx.createBufferSource(), g = ctx.createGain();
+    src.buffer = buffer;
+    g.gain.value = volume;
+    src.connect(g); g.connect(node);
+    src.onended = () => { try { g.disconnect(); } catch { /* already gone */ } };
+    src.start();
+  }
+  // A file the user picked: const buffer = await window.BAWK.audioCtx.decodeAudioData(await file.arrayBuffer());
+  - Decode or render once and cache the AudioBuffer; never decode on the kill itself.
+  - Keep levels sane: Kill Sounds normalizes every clip to the same loudness and limits peaks, so no pack is louder
+    than a gunshot.
+
+12.5 A HUD overlay that never gets in the way (L1)  [Kill Sounds]
+  function showBanner(img) {
+    let box = document.getElementById("ss-my-mod-banner");
+    if (!box) {
+      box = document.createElement("div");
+      box.id = "ss-my-mod-banner";
+      // Below the crosshair and above the game's kill message (which starts 67% of the way down), sized by the
+      // window's height like the game's HUD, and never in the way of a click.
+      box.style.cssText = "position: fixed; left: 50%; top: 52vh; width: 16vh; height: 16vh; margin-left: -8vh; " +
+        "pointer-events: none; z-index: 2147483000; opacity: 0;";
+      document.body.append(box);
+    }
+    box.replaceChildren(img);
+    box.getAnimations().forEach(a => a.cancel());
+    box.animate([
+      { opacity: 0, transform: "scale(1.5)", easing: "cubic-bezier(.2, .8, .3, 1)" },
+      { opacity: 1, transform: "scale(.95)", offset: 0.13 },
+      { opacity: 1, transform: "scale(1)", offset: 0.3 },
+      { opacity: 1, offset: 0.8 },
+      { opacity: 0, transform: "scale(.96)" },
+    ], { duration: 2200 });
+  }
+  - Remove it in stop(). Sounds off or the feature off: never create it.
+
+12.6 Wrap a game function so it stacks with other mods (L2)  [Valorant Sensitivity]
+  Shown on set_mouse_params, whose only allowed use is the user's own chosen sensitivity (Section 1.2). The same
+  shape works for any function you wrap.
+  const MARK = Symbol.for("ssMyMod.mouseHook");
+  let hooked = null, inside = false;   // hooked: { orig, wrap }
+  function hook() {
+    const cur = window.set_mouse_params;
+    if (typeof cur !== "function") return false;
+    if (cur[MARK]) { cur[MARK].live = true; hooked = { orig: cur[MARK].orig, wrap: cur }; return true; }
+    const state = { live: true, orig: cur };
+    const wrap = function (speed, invert, gunZoom, aiming) {
+      // `inside`: if this got wrapped twice, only the outer copy changes anything.
+      if (!state.live || !running || inside) return cur.apply(this, arguments);
+      const args = Array.prototype.slice.call(arguments), zoom = Number(gunZoom);
+      if (aiming && zoom > 0 && zoom < Math.PI) {
+        try { args[2] = zoomFactor(zoom); } catch (err) { warn(err); }   // your user's chosen multiplier
+      }
+      inside = true;
+      try { return cur.apply(this, args); } finally { inside = false; }
+    };
+    wrap[MARK] = state;
+    try { window.set_mouse_params = wrap; } catch { return false; }
+    if (window.set_mouse_params !== wrap) return false;
+    hooked = { orig: cur, wrap };
+    return true;
+  }
+  function unhook() {
+    if (!hooked) return;
+    const { orig, wrap } = hooked;
+    hooked = null;
+    wrap[MARK].live = false;
+    try { if (window.set_mouse_params === wrap) window.set_mouse_params = orig; } catch { /* left as is */ }
+  }
+
+12.7 Property traps (L3)
+a) Act the moment the game assigns a global  [Better HUD does this for window.BAWK]
+  function trapGlobal(name, onValue) {
+    if (window[name]) { try { onValue(window[name]); } catch (err) { warn(err); } return; }   // already there
+    const prev = Object.getOwnPropertyDescriptor(window, name);
+    if (prev && !prev.configurable) return;                    // can't trap it: fall back to looking in tick()
+    let value = prev && prev.value;
+    Object.defineProperty(window, name, {
+      configurable: true, enumerable: true,
+      get() { return prev && prev.get ? prev.get.call(this) : value; },
+      set(v) {
+        if (prev && prev.set) prev.set.call(this, v); else value = v;   // keep another mod's trap working
+        if (v) { try { onValue(v); } catch (err) { warn(err); } }
+      },
+    });
+  }
+  Caution: Better HUD defines its own window.BAWK trap without chaining, so if it runs after you, yours is replaced
+  and never fires. Unless you must act at the very moment of creation, simply read window.BAWK when you need it, or
+  look for it in tick().
+b) Catch every object the game gives one property  [the shape No Chat Cooldown used on chatLines; that feature is
+   retired, Section 1.3]
+  const KEY = "someUniqueName";   // CHECK in the dump: unique to the game, set with "this.KEY = ..." or "o.KEY = ..."
+  Object.defineProperty(Object.prototype, KEY, {
+    configurable: true,
+    get() { return undefined; },
+    set(v) {
+      // From now on this object has its own ordinary property, so the trap runs once per object.
+      Object.defineProperty(this, KEY, { value: v, writable: true, enumerable: true, configurable: true });
+      try { onObject(this); } catch (err) { warn(err); }
+    },
+  });
+  // In stop(): delete Object.prototype[KEY];
+  - Only assignment triggers it. A class field (KEY = 0 in a class body) or an object literal ({ KEY: 0 }) defines the
+    property directly and skips the trap. Check how the game sets the property before relying on it.
+  - It affects every object on the page: the name must be one only the game uses, and for everything else the trap
+    must behave like an ordinary property. While it is installed, (KEY in anyObject) is true for every object.
+
+12.8 Patch the game's code (L4)
+  Section 8: the shared pipeline (8.2), the rules (8.3), and two complete, verified patches (8.4, 8.5).
+
+12.9 Settings store
+  Section 9.3.
+
+12.10 Download assets once and keep them  [Kill Sounds]
+  const FILES = "https://raw.githubusercontent.com/YourName/Your-Repo/<commit-sha>/assets";   // a commit, not a branch
+  const KEEP = "ss-my-mod";
+  let kept = null;
+  function keep() {
+    kept = kept || (async () => {
+      const store = await caches.open(KEEP);
+      for (const req of await store.keys()) if (!req.url.startsWith(FILES + "/")) store.delete(req);   // an older version's
+      return store;
+    })().catch(() => null);   // no Cache Storage here (a private window, or blocked): download on each visit
+    return kept;
+  }
+  async function download(name) {
+    const url = `${FILES}/${name}`, store = await keep();
+    const old = store && await store.match(url).catch(() => null);
+    if (old) return old;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Couldn't download ${name} (HTTP ${res.status})`);
+    if (store) store.put(url, res.clone()).catch(() => { /* storage full: it downloads again next time */ });
+    return res;
+  }
+  - Files the user picks go in IndexedDB, never on a server. Kill Sounds keeps up to five, 4 MB each.
+
+12.11 Know the match code and server (read-only)  [Stats Mod]
+  const net = { code: "", host: "" };
+  (() => {
+    const Native = window.WebSocket;
+    if (typeof Native !== "function") return;
+    try {
+      // A Proxy keeps the prototype, instanceof and the constants (WebSocket.OPEN) exactly as they were.
+      window.WebSocket = new Proxy(Native, {
+        construct(target, args, newTarget) {
+          try {
+            const u = new URL(String(args[0]), location.href), m = /\/game\/([^/?#]+)/.exec(u.pathname || "");
+            if (m) { net.code = m[1]; net.host = u.hostname.toLowerCase(); }
+          } catch (err) { warn(err); }
+          return Reflect.construct(target, args, newTarget);
+        },
+      });
+    } catch (err) { warn(err); }
+  })();
+  - Install it at document-start, before the game connects. Read the URL only: never wrap send, onmessage or the
+    messages themselves (Section 1.2).
+  - The matchmaker and region pings have no /game/ path and are ignored. A new code seen while not in play means a
+    new match; the game can open the next match's socket mid-match.
+
+12.12 Game state helpers  [Better HUD, Stats Mod]
+  const vue = () => { const a = window.vueApp; return (a && (a.$data || a)) || {}; };
+  function inGame() {   // in a game, playing or paused
+    try {
+      const x = window.extern;
+      if (x && typeof x.inGame === "boolean") return x.inGame;
+      const g = vue().game;
+      if (g && typeof g.on === "boolean") return g.on;
+    } catch { /* not ready */ }
+    return false;   // the stats trackers return true here so they never drop a match; UI code should not
+  }
+  const inPlay = () => !!document.pointerLockElement;
+  const paused = () => !!(vue().game && vue().game.isPaused);
+  const spectating = () => { const u = vue().ui; return !!(u && u.game && u.game.spectate === true); };
+  const onMatchScreen = () => { const v = window.vueData; return !!(v && v.screens && v.showScreen === v.screens.game); };
+  const mode = () => { const g = vue().game; return g && g.on && typeof g.gameType === "number" ? ["ffa", "team", "spatula", "king"][g.gameType] || "" : ""; };
+
+12.13 One timer for all periodic work  [Better HUD's shared scheduler, shortened]
+  // Sleeps while the tab is hidden; menu tasks also sleep while the player is in play.
+  function makeScheduler() {
+    const jobs = new Map();
+    let timer = null;
+    const runnable = j => !document.hidden && (j.inMatch || !document.pointerLockElement);
+    function schedule() {
+      clearTimeout(timer);
+      timer = null;
+      let due = Infinity;
+      jobs.forEach(j => { if (runnable(j)) due = Math.min(due, j.due); });
+      if (due !== Infinity) timer = setTimeout(run, Math.max(0, due - performance.now()));
+    }
+    function run() {
+      const now = performance.now();
+      jobs.forEach((j, fn) => {
+        if (j.due > now || !runnable(j)) return;
+        j.due = now + j.period;
+        try { fn(); } catch (err) { warn(err); }
+      });
+      schedule();
+    }
+    const reconcile = () => { jobs.forEach(j => { j.due = 0; }); schedule(); };
+    document.addEventListener("visibilitychange", reconcile);
+    document.addEventListener("pointerlockchange", reconcile);
+    // register(fn, ms, { inMatch }) returns a function that unregisters it.
+    return (fn, period, opts = {}) => {
+      jobs.set(fn, { period: Math.max(100, period), due: 0, inMatch: !!opts.inMatch });
+      schedule();
+      return () => { jobs.delete(fn); schedule(); };
+    };
+  }
+
+12.14 A picture of your UI to share (optional)  [Stats Mod]
+  - Load html-to-image with @require pinned to one version plus its integrity hash, the only @require the published
+    mods use:
+      // @require https://cdnjs.cloudflare.com/ajax/libs/html-to-image/1.11.11/html-to-image.min.js#sha512-7tWCgq9tTYS/QkGVyKrtLpqAoMV9XIUxoou+sPUypsaZx56cYR/qio84fPK9EvJJtKvJEwt7vkn6je5UVzGevw==
+  - Render a clone of your panel off-screen with htmlToImage.toBlob(node, { pixelRatio: 2 }), then download it with
+    an <a download>. To copy it, create the ClipboardItem inside the click handler with the promise of the PNG:
+      navigator.clipboard.write([new ClipboardItem({ "image/png": picturePromise })]);
+    so the click's permission still applies while the picture is drawn.
+  - Better HUD loads the same file only on first use instead: a <script> element with the same src, integrity set to
+    the same hash, and crossOrigin = "anonymous".
+
+
+=====================================================================================================================
+13. TESTING, DEBUGGING, AND SURVIVING GAME UPDATES
+=====================================================================================================================
+
+13.1 Before you answer (AI)
+- The file must parse: node --check My-Mod.user.js (or paste it into the console of an empty tab).
+- Everything you rely on is VERIFIED in this file, confirmed by the user, or clearly listed as an assumption.
+- Section 16's checklist passes.
+
+13.2 In-game test plan (give the user this list, adapted to the feature)
+   1. Reload the game with the mod on. In the console (F12): no red errors carrying your prefix.
+   2. ssMyMod.status() reports running: true, and hooked: true once the game is loaded.
+   3. Settings: change your controls and press Cancel: nothing is kept. Change them and press Confirm: kept, and
+      still there after a reload. Reset to Defaults: back to the defaults.
+   4. Join a match. Use the feature: get a kill, die, respawn, pause and resume, switch team, open chat and type
+      (no hotkey of yours may fire), scope in and out.
+   5. Leave to the home screen and join again: it still works (re-hooking and re-attaching).
+   6. Turn it off with the Mod Menu switch, or without a Mod Menu, in the console:
+        window.ssModMenuQueue.find(m => m.id === "my-mod").disable()
+      Everything it added disappears and the game behaves as without it. .enable() brings it all back.
+   7. Try it with Better HUD on and off, on a mirror domain (geometry.monster), and in Chrome and Firefox if you can.
+   8. Compare FPS with the mod on and off (Section 7.7): no visible difference.
+
+13.3 Reading failures
+  Symptom                                   Likely cause                               Fix
+  -----------------------------------------------------------------------------------------------------------------
+  Nothing at all, no console line            The script never ran: Allow User Scripts   Section 3.1; check the
+                                             off, domain missing from @match, disabled  manager's icon badge
+  vueApp is undefined inside the mod         @grant is not none (sandbox), or the code  @grant none; look for it in
+                                             ran before the game created it             tick() (9.6)
+  UI appears once, gone after reopening      Vue re-rendered and removed your element   re-attach in tick() (9.6)
+  Hook works until the next match            The app or the function was replaced       re-hook when it changes
+  Hotkey fires while typing in chat          No typing check                            Section 10.5
+  A patch "NOT applied" after an update      The code around the anchor changed         re-dump, diff, re-anchor
+  Stuck on the loading screen                An exception in a patch or a hook          try/catch, fail soft (8.6)
+  Everything happens twice                   The script ran twice                       the double-run guard (R3)
+  Settings lost on reload                    Not saved on Confirm, or storage failed    Recipes 12.2 and 12.9
+  Settings differ between mirror domains     localStorage is per domain                 expected; offer codes
+
+13.4 After a game update
+   1. Reload with the console open and read your summary lines: which patches or hooks failed.
+   2. Re-dump the code (Section 6.1). For each failure, find the anchor's surroundings in the new build and diff them
+      against your previous dump. Adjust the regex, still anchored on stable tokens.
+   3. Run 13.2 again, bump @version, publish, and say what was fixed in the changelog.
+
+
+=====================================================================================================================
+14. PUBLISHING
+=====================================================================================================================
+
+14.1 Repository layout (the shape of the published Virojet mods)
+  Shell-Shockers-My-Mod/
+    Shell-Shockers-My-Mod.user.js     the mod, one file, readable (never minified or obfuscated)
+    Shell-Shockers-My-Mod.meta.js     optional: the header only, for cheap update checks (large mods)
+    README.md                         what it does, install, settings, privacy, changelog
+    LICENSE                           MIT
+    icon.svg                          optional
+    assets/                           optional: files the mod downloads, such as sounds (Recipe 12.10)
+
+14.2 README shape
+  - Centered title, one bold sentence on what the player gets, a one-click install badge linking to the raw .user.js:
+      [![Install My Mod](https://img.shields.io/badge/Install_My_Mod-one_click-2ea44f?style=for-the-badge&logo=tampermonkey&logoColor=white)](https://raw.githubusercontent.com/YourName/Shell-Shockers-My-Mod/main/Shell-Shockers-My-Mod.user.js)
+  - Install: 1. get Tampermonkey (links for Chrome, Edge, Firefox, Opera GX) 2. click install 3. reload the game.
+  - A tip block on "Allow User Scripts" for Chrome, Edge, Brave and Opera (Section 3.1).
+  - What it does: short bullets in the player's words.
+  - Settings: a table of where each option lives in the game's Settings.
+  - Good to know: works with or without Better HUD, listed in the Mod Menu, settings are per browser.
+  - Privacy: exactly what is downloaded or sent, or "Nothing is sent anywhere."
+  - Changelog, Credits (name every library and its license), License.
+  - A one-line disclaimer, as Better HUD has: a client-side cosmetic and quality-of-life mod that does not change game
+    logic, give unfair advantages, or talk to the server beyond what the game itself does.
+
+14.3 Versions and updates
+- Semver: patch for fixes, minor for features, major for breaking changes to settings or behavior.
+- Bump @version in every release; managers compare it to decide whether to update.
+- @downloadURL and @updateURL point at the main branch's raw file (or the .meta.js). Never at a fork or a tag.
+- Keep the changelog in the README with a short "What's new" at the top.
+
+14.4 Greasy Fork
+If you also publish there: readable code only (no minification or obfuscation), a @license, a clear description,
+and external code only from the CDNs Greasy Fork allows. Keep GitHub as the source and the update URL consistent.
+
+
+=====================================================================================================================
+15. ANTI-PATTERNS: WHAT MAKES A MOD LOOK LIKE AI SLOP
+=====================================================================================================================
+
+Each of these is common in AI-written mods. Each one is a reason to reject your own draft.
+
+Correctness
+  X  Invented internals: window.game, game.players, getLocalPlayer(), player.isEnemy, a guessed obfuscated name.
+     -> Use only what Section 4 marks VERIFIED, or ask for a console check or a code snippet (Sections 6 and 7).
+  X  Hard-coded obfuscated names in a regex or a call (nc.Di, Rc.getBuffer, tP[...]). Broken by the next build.
+     -> Anchor on stable tokens; capture short names with ([\w$]+) (Section 8).
+  X  @grant GM_xmlhttpRequest or GM_addStyle "for convenience", then window.vueApp is undefined.
+     -> @grant none (Section 3.2).
+  X  @run-at document-end or document-idle for anything that hooks or themes. Too late.
+  X  Overwriting a game function instead of wrapping it; breaks other mods and the game's own behavior.
+  X  Inserting UI once at load. It vanishes on the next re-render.  -> tick() re-attach (9.6).
+  X  Placeholder code: "// TODO", "implement later", functions that log and do nothing, settings that change nothing.
+  X  Claiming it works without a test plan, or "tested" without the user confirming.
+
+Fit and feel
+  X  A floating, draggable "MOD MENU" box with neon gradients, glassmorphism, emoji, rainbow text, or a font the game
+     does not use.  -> The game's own Settings popup, classes, variables and fonts (Section 10).
+  X  alert(), confirm(), prompt(): they freeze the game and look broken.  -> an in-game popup or a note line.
+  X  Hard-coded colors that ignore themes.  -> var(--ss-...) so themes like Blossom recolor your UI too.
+  X  Fixed pixel sizes. The game's UI scales with the window.  -> em and vh units, as the game does.
+  X  Overlays that catch clicks while the player aims, or sit on top of the crosshair.  -> pointer-events: none.
+  X  Hotkeys that fire while typing in chat, or that take a key the game binds (see Settings > Keybindings; the Stats
+     Mod moved its key off / and Tab because they got in the way, to \).  -> typing check, configurable keys (10.5).
+  X  Toasts and console lines every frame or every kill in normal use.
+  X  Making changes the instant a control moves, skipping the game's Confirm and Cancel.
+
+Engineering
+  X  setInterval(fn, 16) or requestAnimationFrame loops that query the DOM.
+  X  A MutationObserver on document with subtree, attributes and characterData that does real work per mutation.
+  X  Many globals (window.myVar1, window.myVar2 ...). One namespaced object only.
+  X  Unprefixed ids and classes (#settings-panel, .toggle) that collide with the game or other mods.
+  X  localStorage without try/catch, or JSON.parse without validation.
+  X  Libraries from random CDNs, unpinned versions, or whole frameworks for one small feature.
+  X  innerHTML with player names or chat text.
+  X  Silent failures: a patch that does not match and nothing says so.  -> one summary line (R16).
+  X  No way to turn it off cleanly (no stop()).
+  X  Hooks copied from cheat clients (XMLHttpRequest or Function interception from before 2025, "hide from the
+     anti-cheat" tricks, per-build name maps).  -> The patterns in Sections 8 and 12.
+  X  Trying to hide the mod from the game: renaming globals randomly, removing elements before the game looks,
+     faking what its WebAssembly reads.  -> Cosmetic mods have nothing to hide (Section 1.2).
+
+
+=====================================================================================================================
+16. PRE-DELIVERY CHECKLIST
+=====================================================================================================================
+
+Answer every line with yes before you deliver. If one is no, fix it, or tell the user exactly why it cannot be done.
+
+Scope
+  [ ] Nothing in the mod gives an advantage over other players or changes what they see or hear (Section 1).
+  [ ] Nothing hides from the game or fakes what it reads; no WebAssembly function is touched except
+      set_mouse_params for the user's own chosen sensitivity.
+Header
+  [ ] @run-at document-start, @grant none, the full Appendix A @match list.
+  [ ] @name, @namespace, @version (semver), @description, @author, @license, @homepageURL, @supportURL,
+      @downloadURL, @updateURL.
+Structure
+  [ ] One IIFE, "use strict", a double-run guard, one window global, one storage key.
+  [ ] start() and stop() exist, undo each other, and are safe to call twice.
+  [ ] Registered with the Mod Menu (window.ssModMenuQueue) with enable, disable and, if it has settings,
+      openSettings.
+Game access
+  [ ] Every game name used is VERIFIED here or confirmed by the user; assumptions are listed in the answer.
+  [ ] No hard-coded obfuscated names. Patches anchor on stable tokens and report applied / NOT applied.
+  [ ] Every hook wraps the original, calls it, catches its own errors, and checks a live flag.
+  [ ] UI and hooks re-attach in tick() after re-renders and app replacement.
+Look and feel
+  [ ] Settings live in the game's Settings popup and honor Confirm, Reset to Defaults and Cancel.
+  [ ] Uses the game's classes, var(--ss-...) colors, Nunito / Sigmar One, em or vh sizes; no emoji, no browser
+      dialogs.
+  [ ] Overlays use pointer-events: none and stay clear of the crosshair; nothing blocks play while aiming.
+  [ ] Keys: typing check, stopPropagation in own inputs, no game keys taken, hotkeys configurable.
+Robustness and safety
+  [ ] Storage reads go through clean() inside try/catch.
+  [ ] No per-frame DOM work; timers at 1 s or slower; observers narrowly scoped and disconnected in stop().
+  [ ] Untrusted text via textContent; no eval; network use is pinned, necessary and disclosed.
+  [ ] Console lines carry the [Mod Name] prefix and do not repeat every frame.
+Delivery
+  [ ] The file parses; there are no placeholders.
+  [ ] The answer includes install steps, the test plan (13.2) adapted to the feature, and known limits.
+
+
+=====================================================================================================================
+APPENDIX A. @match LIST
+=====================================================================================================================
+
+Every domain the game is known to run on (the union of the lists in Virojet's mods and in community clients, 77
+domains, October 2026). Paste all of it. A dead domain costs nothing; a missing one means the mod silently does not
+run for players who use it.
+
+  // @match        *://*.shellshock.io/*
+  // @match        *://*.algebra.best/*
+  // @match        *://*.algebra.monster/*
+  // @match        *://*.algebra.vip/*
+  // @match        *://*.biologyclass.club/*
+  // @match        *://*.combateggs.com/*
+  // @match        *://*.deadlyegg.com/*
+  // @match        *://*.deathegg.life/*
+  // @match        *://*.deathegg.world/*
+  // @match        *://*.egg.dance/*
+  // @match        *://*.eggbattle.com/*
+  // @match        *://*.eggboy.club/*
+  // @match        *://*.eggboy.me/*
+  // @match        *://*.eggboy.xyz/*
+  // @match        *://*.eggcombat.com/*
+  // @match        *://*.eggfacts.fun/*
+  // @match        *://*.egggames.best/*
+  // @match        *://*.egghead.institute/*
+  // @match        *://*.eggisthenewblack.com/*
+  // @match        *://*.eggsarecool.com/*
+  // @match        *://*.eggshock.com/*
+  // @match        *://*.eggshock.me/*
+  // @match        *://*.eggshock.net/*
+  // @match        *://*.eggshooter.best/*
+  // @match        *://*.eggshooter.com/*
+  // @match        *://*.eggwarfare.com/*
+  // @match        *://*.eggwars.io/*
+  // @match        *://*.geometry.best/*
+  // @match        *://*.geometry.monster/*
+  // @match        *://*.geometry.pw/*
+  // @match        *://*.geometry.report/*
+  // @match        *://*.hardboiled.life/*
+  // @match        *://*.hardshell.life/*
+  // @match        *://*.humanorganising.org/*
+  // @match        *://*.math.international/*
+  // @match        *://*.mathactivity.club/*
+  // @match        *://*.mathactivity.xyz/*
+  // @match        *://*.mathdrills.info/*
+  // @match        *://*.mathdrills.life/*
+  // @match        *://*.mathfun.rocks/*
+  // @match        *://*.mathgames.world/*
+  // @match        *://*.mathlete.fun/*
+  // @match        *://*.mathlete.pro/*
+  // @match        *://*.overeasy.club/*
+  // @match        *://*.risenegg.com/*
+  // @match        *://*.scrambled.best/*
+  // @match        *://*.scrambled.tech/*
+  // @match        *://*.scrambled.today/*
+  // @match        *://*.scrambled.us/*
+  // @match        *://*.scrambled.world/*
+  // @match        *://*.shellgame.me/*
+  // @match        *://*.shellplay.live/*
+  // @match        *://*.shellshock.guru/*
+  // @match        *://*.shellshockers.best/*
+  // @match        *://*.shellshockers.ca/*
+  // @match        *://*.shellshockers.club/*
+  // @match        *://*.shellshockers.life/*
+  // @match        *://*.shellshockers.site/*
+  // @match        *://*.shellshockers.today/*
+  // @match        *://*.shellshockers.us/*
+  // @match        *://*.shellshockers.website/*
+  // @match        *://*.shellshockers.wiki/*
+  // @match        *://*.shellshockers.world/*
+  // @match        *://*.shellshockers.xyz/*
+  // @match        *://*.shellsocks.com/*
+  // @match        *://*.softboiled.club/*
+  // @match        *://*.urbanegger.com/*
+  // @match        *://*.violentegg.club/*
+  // @match        *://*.violentegg.fun/*
+  // @match        *://*.yolk.best/*
+  // @match        *://*.yolk.life/*
+  // @match        *://*.yolk.monster/*
+  // @match        *://*.yolk.quest/*
+  // @match        *://*.yolk.rocks/*
+  // @match        *://*.yolk.tech/*
+  // @match        *://*.yolk.today/*
+  // @match        *://*.zygote.cafe/*
+
+
+=====================================================================================================================
+APPENDIX B. STARTER TEMPLATE
+=====================================================================================================================
+
+A small, complete mod that follows every rule in this file: "Kill Glow", a soft glow at the edge of the screen on
+each of your kills. It was tested in a mock of the game's surfaces: the kill hook, the Settings cell with Confirm,
+Reset and Cancel, Vue re-renders, the app being replaced, another mod wrapping the same function, the script loading
+twice, and a damaged save. It is also in the repository as templates/Shell-Shockers-Mod-Template.user.js.
+
+To start a new mod: copy it; rename Kill Glow, ssKillGlow, ss-kill-glow, sskg and kill-glow everywhere; update the
+header; replace the glow (flash, hideGlow) and the settings (DEFAULTS, clean, the cell's controls) with your
+feature; keep everything else.
+
+----- BEGIN Shell-Shockers-Mod-Template.user.js -----
+// ==UserScript==
+// @name         Shell Shockers Kill Glow
+// @namespace    https://github.com/Virojet
+// @version      1.0.0
+// @description  A soft glow around the edge of the screen on each of your kills, in the color you pick. A small, complete mod built the way the Shell Shockers Mod Instructions describe: use it as the starting point for your own.
+// @author       Virojet
+// @license      MIT
+// @homepageURL  https://github.com/Virojet/Shell-Shockers-Mod-Instructions
+// @supportURL   https://github.com/Virojet/Shell-Shockers-Mod-Instructions/issues
+// @downloadURL  https://raw.githubusercontent.com/Virojet/Shell-Shockers-Mod-Instructions/main/templates/Shell-Shockers-Mod-Template.user.js
+// @updateURL    https://raw.githubusercontent.com/Virojet/Shell-Shockers-Mod-Instructions/main/templates/Shell-Shockers-Mod-Template.user.js
+// @match        *://*.shellshock.io/*
+// @match        *://*.algebra.best/*
+// @match        *://*.algebra.monster/*
+// @match        *://*.algebra.vip/*
+// @match        *://*.biologyclass.club/*
+// @match        *://*.combateggs.com/*
+// @match        *://*.deadlyegg.com/*
+// @match        *://*.deathegg.life/*
+// @match        *://*.deathegg.world/*
+// @match        *://*.egg.dance/*
+// @match        *://*.eggbattle.com/*
+// @match        *://*.eggboy.club/*
+// @match        *://*.eggboy.me/*
+// @match        *://*.eggboy.xyz/*
+// @match        *://*.eggcombat.com/*
+// @match        *://*.eggfacts.fun/*
+// @match        *://*.egggames.best/*
+// @match        *://*.egghead.institute/*
+// @match        *://*.eggisthenewblack.com/*
+// @match        *://*.eggsarecool.com/*
+// @match        *://*.eggshock.com/*
+// @match        *://*.eggshock.me/*
+// @match        *://*.eggshock.net/*
+// @match        *://*.eggshooter.best/*
+// @match        *://*.eggshooter.com/*
+// @match        *://*.eggwarfare.com/*
+// @match        *://*.eggwars.io/*
+// @match        *://*.geometry.best/*
+// @match        *://*.geometry.monster/*
+// @match        *://*.geometry.pw/*
+// @match        *://*.geometry.report/*
+// @match        *://*.hardboiled.life/*
+// @match        *://*.hardshell.life/*
+// @match        *://*.humanorganising.org/*
+// @match        *://*.math.international/*
+// @match        *://*.mathactivity.club/*
+// @match        *://*.mathactivity.xyz/*
+// @match        *://*.mathdrills.info/*
+// @match        *://*.mathdrills.life/*
+// @match        *://*.mathfun.rocks/*
+// @match        *://*.mathgames.world/*
+// @match        *://*.mathlete.fun/*
+// @match        *://*.mathlete.pro/*
+// @match        *://*.overeasy.club/*
+// @match        *://*.risenegg.com/*
+// @match        *://*.scrambled.best/*
+// @match        *://*.scrambled.tech/*
+// @match        *://*.scrambled.today/*
+// @match        *://*.scrambled.us/*
+// @match        *://*.scrambled.world/*
+// @match        *://*.shellgame.me/*
+// @match        *://*.shellplay.live/*
+// @match        *://*.shellshock.guru/*
+// @match        *://*.shellshockers.best/*
+// @match        *://*.shellshockers.ca/*
+// @match        *://*.shellshockers.club/*
+// @match        *://*.shellshockers.life/*
+// @match        *://*.shellshockers.site/*
+// @match        *://*.shellshockers.today/*
+// @match        *://*.shellshockers.us/*
+// @match        *://*.shellshockers.website/*
+// @match        *://*.shellshockers.wiki/*
+// @match        *://*.shellshockers.world/*
+// @match        *://*.shellshockers.xyz/*
+// @match        *://*.shellsocks.com/*
+// @match        *://*.softboiled.club/*
+// @match        *://*.urbanegger.com/*
+// @match        *://*.violentegg.club/*
+// @match        *://*.violentegg.fun/*
+// @match        *://*.yolk.best/*
+// @match        *://*.yolk.life/*
+// @match        *://*.yolk.monster/*
+// @match        *://*.yolk.quest/*
+// @match        *://*.yolk.rocks/*
+// @match        *://*.yolk.tech/*
+// @match        *://*.yolk.today/*
+// @match        *://*.zygote.cafe/*
+// @run-at       document-start
+// @grant        none
+// ==/UserScript==
+
+/* Kill Glow: a soft glow around the edge of the screen each time you crack someone.
+
+   How it knows: on each of your kills the game shows its message by calling
+   vueApp.shellIngameNotification({ type: 0, streak }). The mod wraps that call, starts the glow, and lets the game
+   show its message as usual. Only your own kills make that call with type 0. The game's code isn't changed.
+
+   The glow never takes a click and sits outside the crosshair, so it can't get in the way while you aim. With
+   "reduce motion" on in your system, it fades instead of pulsing.
+
+   Settings > the speaker tab > Kill Glow: on or off, the color and the strength, and a Test button. As with the
+   game's settings around it, a change is kept when you press Confirm.
+
+   It stores its settings in this site's localStorage under "ssKillGlow" and sends nothing anywhere.
+
+   window.ssKillGlow: version, settings(), set({ enabled, color, strength }), flash(), status().
+
+   Building your own mod from this file: keep the structure (guard, settings store, hook, UI cell, tick, start and
+   stop, public API, Mod Menu), rename "Kill Glow" / ssKillGlow / ss-kill-glow / sskg everywhere, and replace the
+   glow with your feature. */
+(() => {
+  "use strict";
+  if (window.ssKillGlow) return;   // already running: Tampermonkey and the Mod Menu both started it
+
+  const VERSION = "1.0.0";
+  const STORE = "ssKillGlow";
+  // The game's own palette, so the glow matches its UI (Better HUD's tokens use the same colors).
+  const COLORS = [
+    { id: "yolk", name: "Yolk", value: "#ff9800" },
+    { id: "blue", name: "Blue", value: "#2db8d4" },
+    { id: "green", name: "Green", value: "#47f5b4" },
+    { id: "pink", name: "Pink", value: "#ff7fb8" },
+    { id: "red", name: "Red", value: "#d82727" },
+  ];
+  const DEFAULTS = Object.freeze({ enabled: true, color: "yolk", strength: 0.6 });
+  // Bound now, at document-start: the game may wrap console later.
+  const warn = console.warn.bind(console, "[Kill Glow]");
+
+  /* ---- Saved settings ---- */
+  // Everything from storage, from the controls, or from set() goes through clean(), so a damaged or old save can't
+  // break the mod.
+  function clean(s) {
+    const ok = !!s && typeof s === "object";
+    return {
+      enabled: ok && typeof s.enabled === "boolean" ? s.enabled : DEFAULTS.enabled,
+      color: ok && COLORS.some(c => c.id === s.color) ? s.color : DEFAULTS.color,
+      strength: ok && Number.isFinite(s.strength) ? Math.min(1, Math.max(0.1, s.strength)) : DEFAULTS.strength,
+    };
+  }
+  let saved;
+  try { saved = clean(JSON.parse(localStorage.getItem(STORE))); } catch { saved = clean(null); }
+  function save(s) {
+    saved = clean(s);
+    try { localStorage.setItem(STORE, JSON.stringify(saved)); } catch { /* storage blocked: kept for this visit */ }
+  }
+
+  /* ---- The glow ---- */
+  const GLOW = "ss-kill-glow";
+  const colorOf = id => (COLORS.find(c => c.id === id) || COLORS[0]).value;
+  const reducedMotion = () => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } };
+
+  // `s`: the settings to show it with (the ones being edited, when Test is pressed).
+  function flash(s = saved) {
+    if (!document.body) return;
+    let box = document.getElementById(GLOW);
+    if (!box) {
+      box = document.createElement("div");
+      box.id = GLOW;
+      // Fixed over the whole screen, never takes a click, and drawn only at the edges: the middle, where the
+      // crosshair is, stays clear.
+      box.style.cssText = "position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; opacity: 0;";
+      document.body.append(box);
+    }
+    const c = colorOf(s.color), a = Math.round(s.strength * 255).toString(16).padStart(2, "0");
+    box.style.boxShadow = `inset 0 0 ${(4 + 8 * s.strength).toFixed(1)}vh ${(1 + 2 * s.strength).toFixed(1)}vh ${c}${a}`;
+    box.getAnimations().forEach(anim => anim.cancel());
+    box.animate(reducedMotion() ? [{ opacity: 0.8 }, { opacity: 0 }] : [
+      { opacity: 0, easing: "cubic-bezier(.2, .8, .3, 1)" },
+      { opacity: 1, offset: 0.15 },
+      { opacity: 0 },
+    ], { duration: reducedMotion() ? 500 : 700 });
+  }
+  const hideGlow = () => document.getElementById(GLOW)?.remove();
+
+  /* ---- The kill hook ---- */
+  const MARK = Symbol.for("ssKillGlow.hook");
+  let hooked = null;   // { app, orig, wrap }
+  function hook() {
+    const app = window.vueApp, cur = app && app.shellIngameNotification;
+    if (typeof cur !== "function") return false;
+    if (cur[MARK]) {   // ours already (this script's earlier hook)
+      cur[MARK].live = true;
+      hooked = { app, orig: cur[MARK].orig, wrap: cur };
+      return true;
+    }
+    const state = { live: true, orig: cur };
+    const wrap = function (item) {
+      // Read before calling the game: it rewrites the message object.
+      if (state.live && running && saved.enabled && item && item.type === 0) {
+        try { flash(); } catch (err) { warn(err); }
+      }
+      return cur.apply(this, arguments);
+    };
+    wrap[MARK] = state;
+    try { app.shellIngameNotification = wrap; } catch { return false; }
+    if (app.shellIngameNotification !== wrap) return false;
+    hooked = { app, orig: cur, wrap };
+    return true;
+  }
+  function unhook() {
+    if (!hooked) return;
+    const { app, orig, wrap } = hooked;
+    hooked = null;
+    // If another script wrapped it since, ours stays in the chain but does nothing.
+    wrap[MARK].live = false;
+    try { if (app.shellIngameNotification === wrap) app.shellIngameNotification = orig; } catch { /* left as is */ }
+  }
+
+  /* ---- Settings > the speaker tab > Kill Glow ---- */
+  const CELL = "ss-kill-glow-cell";
+  const CSS = `
+#${CELL} { min-width: 0; }
+#${CELL} .f_row { align-items: center; }
+#${CELL} select, #${CELL} input[type=range] { min-width: 0; }
+#${CELL} select { flex: 1 1 auto; }
+#${CELL} .ss_button, #${CELL} label { flex: none; }`;
+  let ui = null, pending = null;
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function injectUI() {
+    const grid = document.querySelector("#settings_misc > .display-grid");
+    if (!grid) return;
+    if (ui) removeUI();
+    const cell = el("div", "f_col");
+    cell.id = CELL;
+    // The game's own checkbox, select, slider and small blue button, as in its other settings.
+    const on = el("input");
+    on.type = "checkbox";
+    const onLabel = el("label", "ss_checkbox label", "Kill Glow ");
+    onLabel.title = "A soft glow around the edge of the screen on each of your kills.";
+    onLabel.append(on, el("span", "checkmark"));
+    const color = el("select", "ss_select ss_marginright_sm");
+    for (const c of COLORS) color.append(new Option(c.name, c.id));
+    color.title = "The glow's color.";
+    const test = el("button", "ss_button btn_blue bevel_blue btn_sm", "Test");
+    test.type = "button";
+    test.title = "Shows the glow with these settings.";
+    const range = el("input", "ss_slider");
+    Object.assign(range, { type: "range", min: "0.1", max: "1", step: "0.05", title: "How strong the glow is." });
+    const value = el("label", "ss_slider label text_blue4");
+    const row = (...kids) => { const r = el("div", "f_row"); r.append(...kids); return r; };
+    const onRow = el("div", "nowrap");
+    onRow.append(onLabel);
+    cell.append(el("h3", "margin-bottom-none h-short", "Kill Glow"), onRow, row(color, test), row(range, value));
+    grid.append(cell);
+
+    if (!document.getElementById(CELL + "-style")) {
+      const style = el("style", null, CSS);
+      style.id = CELL + "-style";
+      (document.head || document.documentElement).append(style);
+    }
+
+    on.addEventListener("change", () => { pending.enabled = on.checked; refresh(); });
+    color.addEventListener("change", () => { pending.color = color.value; flash(pending); });
+    range.addEventListener("input", () => {
+      pending.strength = Math.min(1, Math.max(0.1, Number(range.value) || DEFAULTS.strength));
+      value.textContent = String(Math.round(pending.strength * 100));
+    });
+    range.addEventListener("change", () => flash(pending));
+    test.addEventListener("click", () => flash(pending));
+
+    // The popup opening or closing puts the saved settings back in the controls, so a change only stays if Confirm
+    // saved it (Cancel, the X and Esc all leave things as they were).
+    const me = { cell, on, color, test, range, value, io: null, shown: null };
+    me.io = new IntersectionObserver(entries => {
+      const shown = entries[entries.length - 1].isIntersecting;
+      if (ui !== me || shown === me.shown) return;
+      me.shown = shown;
+      revert({ ...saved });
+    });
+    me.io.observe(cell.closest("#settings") || grid);
+    ui = me;
+    revert({ ...saved });
+  }
+  function removeUI() {
+    if (!ui) return;
+    ui.io.disconnect();
+    ui.cell.remove();
+    document.getElementById(CELL + "-style")?.remove();
+    ui = null;
+  }
+  function revert(to) {
+    pending = clean(to);
+    refresh();
+  }
+  function refresh() {
+    if (!ui) return;
+    const p = pending || saved;
+    ui.on.checked = p.enabled;
+    ui.color.value = p.color;
+    ui.range.value = String(p.strength);
+    ui.value.textContent = String(Math.round(p.strength * 100));
+    ui.color.disabled = ui.range.disabled = ui.test.disabled = !p.enabled;
+  }
+
+  // The game's Confirm, Reset to Defaults and Cancel buttons, under the tabs.
+  function onClick(e) {
+    if (!ui || !pending) return;
+    const b = e.target instanceof Element && e.target.closest("#settings .grid-column-3-eq > button");
+    if (!b) return;
+    if (b.classList.contains("btn_green")) save(pending);
+    else if (b.classList.contains("btn_yolk")) revert({ ...DEFAULTS });
+    else if (b.classList.contains("btn_red")) revert({ ...saved });
+  }
+
+  // For the Mod Menu's shortcut: opens Settings on the speaker tab, where the Kill Glow cell is.
+  function openSettings() {
+    const app = window.vueApp;
+    if (!running || !app || typeof app.showSettingsPopup !== "function") return false;
+    try {
+      app.showSettingsPopup();
+      const tab = document.getElementById("misc_button");
+      if (tab) tab.click();
+      else if (typeof app.onSettingsPopupSwitchTabMisc === "function") app.onSettingsPopupSwitchTabMisc();
+    } catch (err) { warn(err); return false; }
+    tick();
+    return true;
+  }
+
+  /* ---- On and off ---- */
+  let running = false, timer = 0;
+  // Every second: hook the game's app (again, if it was replaced) and put the settings cell back if Vue removed it.
+  function tick() {
+    if (!running) return;
+    if (!hooked || hooked.app !== window.vueApp) hook();
+    if (!ui || !ui.cell.isConnected) injectUI();
+  }
+  function start() {
+    if (running) return;
+    running = true;
+    document.addEventListener("click", onClick, true);
+    tick();
+    timer = setInterval(tick, 1000);
+  }
+  function stop() {
+    if (!running) return;
+    running = false;
+    clearInterval(timer);
+    document.removeEventListener("click", onClick, true);
+    unhook();
+    removeUI();
+    hideGlow();
+  }
+
+  window.ssKillGlow = {
+    version: VERSION,
+    settings: () => ({ ...saved }),
+    set(s) { save({ ...saved, ...s }); revert({ ...saved }); return { ...saved }; },
+    flash: () => flash(),   // shows the glow now, as on a kill
+    status: () => ({ running, hooked: !!hooked, settingsShown: !!ui && ui.cell.isConnected }),
+  };
+
+  start();
+  // The Mod Menu (if it's installed) lists it with an on/off switch and a shortcut to these settings.
+  (window.ssModMenuQueue = window.ssModMenuQueue || []).push({
+    id: "kill-glow", name: "Kill Glow", version: VERSION, group: "mod",
+    description: "A soft glow around the edge of the screen on each of your kills.",
+    enable: start, disable: stop, openSettings,
+  });
+})();
+----- END Shell-Shockers-Mod-Template.user.js -----
+
+
+=====================================================================================================================
+APPENDIX C. GAME REFERENCE DATA
+=====================================================================================================================
+
+From yolkbot 1.5.12's constants (May 2026) and measurements in Valorant Sensitivity. CHECK numbers before relying on
+them for anything precise; names and ids change rarely.
+
+C.1 Game modes (id: name)
+  0: Free For All    1: Teams    2: Capture the Spatula    3: King of the Coop
+C.2 Teams
+  1: Blue    2: Red
+C.3 Weapons (name players see / internal name / mesh name)
+  EggK-47     / Eggk47      / eggk47          Scrambler   / Dozen Gauge / dozenGauge
+  Free Ranger / CSG-1       / csg1            Cluck 9mm   / Cluck 9mm   / cluck9mm     (the secondary)
+  RPEGG       / Eggsploder  / rpegg           Whipper     / SMEGG       / smg
+  Crackshot   / M2DZ        / m24             Tri-Hard    / AUG         / aug
+C.4 Shell streak power-ups (bit flags)
+  HardBoiled 1, EggBreaker 2, Restock 4, OverHeal 8, DoubleEggs 16, MiniEgg 32
+C.5 Item types
+  Hat 1, Stamp 2, Primary 3, Secondary 4, Grenade 6, Melee 7
+C.6 Chat flags
+  None 0, Pinned 2, Team 4, Mod 254, Server 255
+C.7 Mouse and view (measured in Valorant Sensitivity, VERIFIED)
+  - Turn per mouse count: (Mouse Speed)^2 x 0.000001 radians, the same sideways and up and down. The game's
+    WebAssembly adds up each pointer-lock movementX / movementY.
+  - Vertical field of view from the hip: 1.25 radians. Horizontal follows the canvas's aspect ratio.
+  - Aiming multiplies turning by the gun's zoom, passed as gunZoom to window.set_mouse_params: 0.4 for the Crackshot,
+    0.5 for the Free Ranger, up to 1.1 for the Cluck 9mm.
+  - The Mouse Speed slider runs from 1 to 100 and shows whole numbers, but the game keeps and saves the exact value.
+C.8 Your own kills (VERIFIED, Kill Sounds)
+  vueApp.shellIngameNotification({ type: 0, streak }) runs on each of your kills; streak is present from 2. Other
+  players' kills, hits and your deaths do not call it with type 0. The game rewrites the object, so read it first.
+C.9 Screen layout (VERIFIED, Kill Sounds)
+  The game's own kill message starts 67% of the way down the screen (63% with a Shell Streak). Its UI is sized by the
+  window's height.
+
+
+=====================================================================================================================
+APPENDIX D. GLOSSARY
+=====================================================================================================================
+
+  anchor          A stable piece of the game's code that a patch searches for: a string, a property name, a
+                  library call. Never a short obfuscated name.
+  build           One version of the game's code. A new build can rename every short identifier ("reroll").
+  chain-safe      A hook that wraps whatever is there now, calls it, and still works when other mods wrap it too.
+  decoded code    The JavaScript the game's WebAssembly produces from the encoded js/shellshock.js.
+  document-start  The earliest moment a userscript can run, before the page's own scripts.
+  live flag       A per-hook boolean that turns a wrapper into a pass-through when the mod stops.
+  Mod Menu        A shared on/off list of installed mods, fed by window.ssModMenuQueue (Section 11).
+  pointer lock    The browser state while the player aims: the cursor is hidden and the mouse turns the view.
+  re-render       Vue replacing DOM nodes; anything you inserted under them is removed with them.
+  tick            Your mod's one-second housekeeping function that re-hooks and re-attaches.
+  VERIFIED        Used by a published, working mod as of this file's date.
+
+
+=====================================================================================================================
+APPENDIX E. SOURCES AND CREDITS
+=====================================================================================================================
+
+- Virojet's mods (MIT): Shell-Shockers-Better-Hud-Mod, Shell-Shockers-Stats-Mod, Shell-Shockers-Valorant-Sensitivity,
+  Shell-Shockers-Valorant-Kill-Sounds, Shell-Shockers-Blossom-V4-Theme (art by ThatOneGuySS, hosted by Foggier01),
+  Shell-Shockers-Cherry-Blossom-Theme, Shell-Shockers-No-Chat-Cooldown. https://github.com/Virojet
+- yolkbot by 1ust (VillainsRule): game constants and the decoding scheme. https://yolkbot.xyz, npm package
+  "yolkbot", https://github.com/yolkop/yolkbot. Its license reserves all rights, so this guide takes only facts from
+  it (constant values, how the file is encoded) and none of its code.
+- StateFarm Client by Hydroflame521 and contributors (GPL-3.0): used only for its domain list and code organization.
+  Its cheat features are out of scope for this guide and are not described here.
+- Shell Shockers is made by Blue Wizard Digital. This guide is unofficial and not endorsed by them.
