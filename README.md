@@ -8,7 +8,7 @@
 
 [![Download the instructions](https://img.shields.io/badge/Download-Shell--Shockers--Mod--Instructions.txt-2ea44f?style=for-the-badge&logo=readthedocs&logoColor=white)](https://raw.githubusercontent.com/Virojet/Shell-Shockers-Mod-Instructions/main/Shell-Shockers-Mod-Instructions.txt)
 
-[![Version](https://img.shields.io/badge/version-1.1.0-0E7697?style=flat-square)](#changelog)
+[![Version](https://img.shields.io/badge/version-1.1.1-0E7697?style=flat-square)](#changelog)
 [![License: MIT](https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square)](./LICENSE)
 [![Works with](https://img.shields.io/badge/works_with-Codex_%C2%B7_Cursor_%C2%B7_Copilot_%C2%B7_Antigravity_%C2%B7_Claude_%C2%B7_ChatGPT_%C2%B7_Gemini-0C576F?style=flat-square)](#use-it-with-your-ai)
 
@@ -48,8 +48,8 @@ in the current game first).
 ### Coding agents: Codex, Cursor, Copilot, Antigravity
 
 1. Copy **`Shell-Shockers-Mod-Instructions.txt`** and **`AGENTS.md`** into your mod's folder.
-2. Open the folder in your tool. `AGENTS.md` is loaded automatically and makes the agent read the TXT before it
-   writes code.
+2. Open the folder in your tool. `AGENTS.md` directs the agent to the core rules and relevant TXT sections before
+   changing mod code; it calls for the full guide for a new mod or when needed.
 3. Ask for your mod.
 
 | Tool | What it reads | Notes |
@@ -144,6 +144,10 @@ it. It is also a quick way to see every convention in one place.
 
 ## Changelog
 
+#### v1.1.1
+- Added a token-conscious workflow: short current context, focused searches, character-bounded output and on-demand history.
+- Kept the core rules and relevant checklist required while avoiding repeated full-guide reads for small changes.
+
 #### v1.1.0
 - The Mod Menu now has its own public repository: Section 11.1 names it and lists its API, including the
   "Check for updates" button.
@@ -165,3 +169,4 @@ it. It is also a quick way to see every convention in one place.
 ## License
 
 [MIT](./LICENSE)
+
