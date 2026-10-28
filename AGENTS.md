@@ -3,9 +3,9 @@
 This project builds userscript mods (`.user.js` files for Tampermonkey or Violentmonkey) for Shell Shockers, the
 browser FPS at shellshock.io.
 
-**Before you write or change any code, read `Shell-Shockers-Mod-Instructions.txt` in this folder, all of it.** It is
-the source of truth for the game's internals, its stable hooks, its UI conventions, the starter template and the
-checklist. This file is only the summary. If the TXT is missing, ask the user for it:
+**Before you write or change mod code, read Section 0 and Section 1 of `Shell-Shockers-Mod-Instructions.txt`,**
+then the sections and checklist relevant to the task. Read the full guide for a new mod or when needed to resolve
+uncertainty. The TXT is the source of truth for game internals, hooks, UI, the template and checklist. This file is only the summary. If the TXT is missing, ask the user for it:
 https://github.com/Virojet/Shell-Shockers-Mod-Instructions
 
 ## Working method
@@ -77,3 +77,4 @@ WebAssembly functions alone; the only allowed use is passing the user's own chos
   Reset to Defaults, `btn_red` Cancel).
 - The decoded game code arrives as a `<script>` whose text is set and then appended at startup; catch it at
   `document-start` (tools/Shell-Shockers-Code-Dumper.user.js shows how).
+
