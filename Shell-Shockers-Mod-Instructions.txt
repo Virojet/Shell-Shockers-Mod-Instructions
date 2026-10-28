@@ -3,13 +3,20 @@
   How to build Shell Shockers userscript mods that work, look native, and survive game updates.
   For AI coding assistants (Codex, Cursor, Copilot, Antigravity, Claude, ChatGPT, Gemini) and the people using them.
 
-  Version 1.0.0 | Researched 2026-10-15 | https://github.com/Virojet/Shell-Shockers-Mod-Instructions
+  Version 1.1.1 | Researched 2026-10-28 | https://github.com/Virojet/Shell-Shockers-Mod-Instructions
   Built from the source code of Virojet's published mods (Better HUD, Stats Mod, Valorant Sensitivity, Valorant Kill
-  Sounds, Blossom V4 Theme, Cherry Blossom Theme, No Chat Cooldown), with facts from yolkbot and community clients.
+  Sounds, Blossom V4 Theme, Cherry Blossom Theme, Gun Sounds, Mod Menu, No Chat Cooldown), with facts from yolkbot and
+  community clients.
 =====================================================================================================================
 
 HOW TO READ THIS FILE
-- Section 0 is for the AI: the working method and the rules that matter most. Read all of it before writing code.
+- Before mod-code changes read Sections 0 and 1, then the sections relevant to the task and Section 16. For a new
+  mod, or when context is insufficient, read the entire guide. Never skip rules or checks needed for safe changes.
+- Save tokens by starting focused chats, keeping a short current-state note, searching by stable literal anchors,
+  bounding initial source/log output by characters, and expanding complete affected code before editing. Keep full
+  logs/history on disk and retrieve relevant excerpts. Line limits alone can return huge minified lines.
+- Use effort appropriate to complexity; avoid loading unrelated archives or duplicating release histories in memory.
+  Caching, context windows and subscription limits differ: do not promise a precise usage saving.
 - Sections 1 to 16 explain each topic in depth. The appendices hold the domain list, the starter template, and
   reference data.
 - Rules are numbered (R1, R2, ...) so they can be cited.
@@ -621,7 +628,7 @@ second is the one to copy:
   uniqueness checks, idempotent patches, and one report line. Better HUD measured the change: three hooks cost 58 to
   76 ms before the game could start; one pass costs a fraction of that.
 
-8.1 Where the code is (VERIFIED: Better HUD 6.1.0, Stats Mod 2.0.3)
+8.1 Where the code is (VERIFIED: Better HUD 6.1.0 and later, Stats Mod 2.0.3)
 - One inline <script>, about 3.3 MB, whose text starts with "(()=>{". The page adds it with appendChild once the
   WebAssembly has decoded it (Section 2.2).
 - Select it by: tagName "SCRIPT", no src, text length at least 100,000, text starts with "(()=>{", not seen before.
@@ -1026,9 +1033,10 @@ passes it by putting things where the game would, with the game's own parts.
 =====================================================================================================================
 
 11.1 The Mod Menu protocol (window.ssModMenuQueue)
-Valorant Sensitivity, Valorant Kill Sounds and the Stats Mod announce themselves to a Mod Menu, a separate script
-(not in any of these repositories) that lists installed mods with an on/off switch and a shortcut to their settings.
-Do the same; it costs one statement and is harmless when no Mod Menu is installed (the array just waits):
+Valorant Sensitivity, Valorant Kill Sounds, Gun Sounds and the Stats Mod announce themselves to the Mod Menu
+(github.com/Virojet/Shell-Shockers-Mod-Menu, also on Greasy Fork), a separate script that lists installed mods with
+an on/off switch and a shortcut to their settings. Do the same; it costs one statement and is harmless when no Mod
+Menu is installed (the array just waits):
 
   (window.ssModMenuQueue = window.ssModMenuQueue || []).push({
     id: "my-mod",                 // kebab-case, unique, never changes
@@ -1044,6 +1052,9 @@ Do the same; it costs one statement and is harmless when no Mod Menu is installe
 - Push once, after your public API exists, at the end of the IIFE (or in boot(), as the Stats Mod does).
 - If your mod stands itself down later (for example because Better HUD turned up), also call
   window.ssModMenu?.unregister?.("my-mod") (Stats Mod). That is the only consumer API the producers rely on.
+- The Mod Menu's own API (window.ssModMenu, VERIFIED: Mod Menu 1.5.0): version, register, unregister, isEnabled,
+  setEnabled, setTheme, getTheme, list, addScript, removeScript, open, close, toggle. Its "Check for updates" button
+  (1.4.0) follows each added script's saved source link, so a script still needs a working @updateURL.
 - openSettings: vueApp.showSettingsPopup(), then click #misc_button or #keyboard_button (or call
   vueApp.onSettingsPopupSwitchTabMisc()), then run your tick() so your cell is there. Recipe 12.2 has the code.
 
@@ -1057,6 +1068,9 @@ Do the same; it costs one statement and is harmless when no Mod Menu is installe
   label? }), tp-statsSession and tp-showMatchHistory. Read them if you build on that history; write them only with the
   same schema.
 - Its code patches go through window.__ssbPatches (Section 8.2); add yours there too.
+- Gun Sounds (hooks BAWK.play, public window.ssGunSounds, registers with the Mod Menu) is a second example of a mod
+  that lives next to Better HUD without overlapping it. Better HUD's MODS > Other Mods page lists the mods that
+  are installed.
 - Better HUD also exposes window.__ssbUI (in-game toast, confirm and prompt) and window.__ssbSettings (its MODS tab
   registry). They are internal: use them only when present, and keep your own fallback.
 
@@ -2109,3 +2123,4 @@ APPENDIX E. SOURCES AND CREDITS
 - StateFarm Client by Hydroflame521 and contributors (GPL-3.0): used only for its domain list and code organization.
   Its cheat features are out of scope for this guide and are not described here.
 - Shell Shockers is made by Blue Wizard Digital. This guide is unofficial and not endorsed by them.
+
