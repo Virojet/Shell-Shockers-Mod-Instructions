@@ -3,14 +3,20 @@
   How to build Shell Shockers userscript mods that work, look native, and survive game updates.
   For AI coding assistants (Codex, Cursor, Copilot, Antigravity, Claude, ChatGPT, Gemini) and the people using them.
 
-  Version 1.1.0 | Researched 2026-10-25 | https://github.com/Virojet/Shell-Shockers-Mod-Instructions
+  Version 1.1.1 | Researched 2026-10-28 | https://github.com/Virojet/Shell-Shockers-Mod-Instructions
   Built from the source code of Virojet's published mods (Better HUD, Stats Mod, Valorant Sensitivity, Valorant Kill
   Sounds, Blossom V4 Theme, Cherry Blossom Theme, Gun Sounds, Mod Menu, No Chat Cooldown), with facts from yolkbot and
   community clients.
 =====================================================================================================================
 
 HOW TO READ THIS FILE
-- Section 0 is for the AI: the working method and the rules that matter most. Read all of it before writing code.
+- Before mod-code changes read Sections 0 and 1, then the sections relevant to the task and Section 16. For a new
+  mod, or when context is insufficient, read the entire guide. Never skip rules or checks needed for safe changes.
+- Save tokens by starting focused chats, keeping a short current-state note, searching by stable literal anchors,
+  bounding initial source/log output by characters, and expanding complete affected code before editing. Keep full
+  logs/history on disk and retrieve relevant excerpts. Line limits alone can return huge minified lines.
+- Use effort appropriate to complexity; avoid loading unrelated archives or duplicating release histories in memory.
+  Caching, context windows and subscription limits differ: do not promise a precise usage saving.
 - Sections 1 to 16 explain each topic in depth. The appendices hold the domain list, the starter template, and
   reference data.
 - Rules are numbered (R1, R2, ...) so they can be cited.
@@ -2117,3 +2123,4 @@ APPENDIX E. SOURCES AND CREDITS
 - StateFarm Client by Hydroflame521 and contributors (GPL-3.0): used only for its domain list and code organization.
   Its cheat features are out of scope for this guide and are not described here.
 - Shell Shockers is made by Blue Wizard Digital. This guide is unofficial and not endorsed by them.
+
